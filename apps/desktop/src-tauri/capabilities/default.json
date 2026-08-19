@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "dsh-desktop main window capability; remote URLs restricted to the local sidecar origin",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": ["core:default", "opener:default", "dialog:default"]
+}

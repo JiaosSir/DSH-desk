@@ -1,0 +1,13 @@
+{
+  "name": "dsh-desktop",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "bridge:build": "pnpm --filter @JiaosSir/dsh-desktop-bridge build",
+    "bridge:test": "pnpm --filter @JiaosSir/dsh-desktop-bridge test",
+    "sidecar:assemble": "node scripts/assemble-sidecar.mjs",
+    "desktop:dev": "pnpm --dir apps/desktop tauri dev",
+    "desktop:build": "pnpm --dir apps/desktop tauri build",
+    "smoke": "node scripts/smoke-desktop.mjs"
+  }
+}

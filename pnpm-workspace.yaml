@@ -1,0 +1,10 @@
+packages:
+  - packages/*
+  - apps/*
+
+# pnpm ≥10 settings live here (the package.json "pnpm" field is ignored).
+# esbuild's postinstall is explicitly declined: its platform binary arrives
+# through the @esbuild/win32-x64 optional dependency and the package works
+# without the lifecycle script.
+allowBuilds:
+  esbuild: false

@@ -1,0 +1,27 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+
+# Rust / Tauri
+target/
+apps/desktop/src-tauri/gen/
+
+# Generated sidecar (reproducible via scripts/assemble-sidecar.mjs)
+apps/desktop/src-tauri/sidecar-dist/*
+!apps/desktop/src-tauri/sidecar-dist/README.md
+
+# Build artifacts of the bridge package
+packages/dsh-desktop-bridge/lib/
+
+# Portable zip output
+dist-portable/
+
+# Logs and env
+*.log
+.env
+
+# Editor/OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

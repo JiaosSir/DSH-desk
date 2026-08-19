@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  desktop-core:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "crates/desktop-core -> target"
+      - run: cargo fmt -p desktop-core --check
+      - run: cargo clippy -p desktop-core -- -D warnings
+      - run: cargo test -p desktop-core
+
+  bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm bridge:test
+      - run: pnpm bridge:build
+
+  shell-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      # Phase 2 replaces this with: sidecar assembly + full build + smoke test
+      - run: pnpm --dir apps/desktop tauri build --no-bundle

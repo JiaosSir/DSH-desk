@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>正在启动 — DeepSeek Harness</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background: #0f1115;
+        color: #d6dbe3;
+        font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      }
+      .spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid #2a2f3a;
+        border-top-color: #4d7cfe;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      h1 { font-size: 18px; font-weight: 600; margin: 0; }
+      p { margin: 0; font-size: 13px; color: #8b93a1; }
+      #actions { display: flex; gap: 10px; margin-top: 8px; }
+      button {
+        padding: 6px 14px;
+        font-size: 13px;
+        border-radius: 6px;
+        border: 1px solid #2a2f3a;
+        background: transparent;
+        color: #d6dbe3;
+        cursor: pointer;
+      }
+      button:hover { background: #1a1f28; }
+    </style>
+  </head>
+  <body>
+    <div class="spinner"></div>
+    <h1>正在启动 DeepSeek Harness…</h1>
+    <p id="hint">首次运行会准备本地环境，请稍候。</p>
+    <div id="actions" hidden>
+      <button id="quit">退出</button>
+      <button id="logs">打开日志目录</button>
+    </div>
+    <script>
+      // The shell injects window.__DSH_DESKTOP__ via an initialization script.
+      // In a plain browser (this page opened directly) the buttons stay hidden.
+      const bridge = window.__DSH_DESKTOP__
+      if (bridge && typeof bridge.quit === 'function') {
+        document.getElementById('actions').hidden = false
+        document.getElementById('quit').addEventListener('click', () => void bridge.quit())
+        document.getElementById('logs').addEventListener('click', () => void bridge.openLogs())
+      }
+    </script>
+  </body>
+</html>

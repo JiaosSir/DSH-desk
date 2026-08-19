@@ -13,7 +13,7 @@
 1. 路线：Tauri 2 壳 + 系统 WebView2，harness 以 sidecar 随包分发（自带 Node + pnpm standalone + 钉死版本的 `@deepseek-ai/dsh-cli`、`dsh-web-app`、`dsh-web-frontend` dist）。壳不含前端，WebView 直接加载 sidecar 的 http://127.0.0.1:<port>，现有 Web UI、客户端插件、Slot/主题生态 100% 复用。
 2. v1 零上游改动：不改 deepseek-harness 仓库任何代码。
 3. 端口协商：壳选空闲端口传 `--port N`；就绪信号 = sidecar stdout 的 `dsh web: http://…` 行。绑定失败换端口重试。
-4. Profile：独立 `~/.dsh/profiles/desktop/`（尊重 DSH_HOME）。首次运行用自带 node+pnpm 执行 `dsh plugin --profile desktop add @deepseek-ai/dsh-web-app` 和 `dsh plugin --profile desktop add @linxin666/dsh-desktop-bridge`（包名可调整）。设置内提供 web→desktop 单向插件同步。
+4. Profile：独立 `~/.dsh/profiles/desktop/`（尊重 DSH_HOME）。首次运行用自带 node+pnpm 执行 `dsh plugin --profile desktop add @deepseek-ai/dsh-web-app` 和 `dsh plugin --profile desktop add @JiaosSir/dsh-desktop-bridge`（包名可调整）。设置内提供 web→desktop 单向插件同步。
 5. 桥接插件 `packages/dsh-desktop-bridge`：npm 发布的外部插件（参照 dsh-web-ui 模式：`dsh.bundle` manifest + client bundle 经 `__DSH_BOOT__` 图加载）；只做特性检测 + Tauri IPC 桥（`window.__DSH_DESKTOP__`），业务逻辑零；浏览器里自动退化。写它之前加载 `cordis-plugin-development` skill 并研究 harness 的外部插件规范（docs/cookbook、dsh-web-ui 仓库结构）。
 6. 永久不变式：开源、自部署、无中心服务器；零遥测（现在不做、以后也不做）；发布唯一渠道 = GitHub Releases；插件分发 = 公共 npm registry；模型 = DeepSeek 官方 API（用户自己的 key）。
 7. 无自动更新：v1 无 updater、无任何更新请求；设置按钮文案「查看最新版」= 打开 GitHub Releases 页面。升级 = 覆盖安装，`~/.dsh` 用户数据保留。

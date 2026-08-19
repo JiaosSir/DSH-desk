@@ -75,7 +75,7 @@
 **首次运行初始化**：桌面端用自带 node + pnpm standalone 依次执行（全程走公开 CLI 命令面，不碰内部 API）：
 
 1. `dsh plugin --profile desktop add @deepseek-ai/dsh-web-app`（隐式初始化 profile）
-2. `dsh plugin --profile desktop add @linxin666/dsh-desktop-bridge`（注册桥接插件；npm 包名提案，以实际发布 scope 为准）
+2. `dsh plugin --profile desktop add @JiaosSir/dsh-desktop-bridge`（注册桥接插件；npm 包名提案，以实际发布 scope 为准）
 
 reconcile 机制自动写入 `dsh.profile.bundles`，最终层栈 = `dsh-base` + `dsh-web-app` + `dsh-desktop-bridge`。初始化幂等，失败可安全重跑。
 

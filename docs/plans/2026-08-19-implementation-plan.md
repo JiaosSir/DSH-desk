@@ -5,7 +5,7 @@
 
 **Goal:** 把 DeepSeek Harness Web UI 做成 Windows x64 桌面产品——用户不装 Node、双击即用；Tauri 2 壳监督随包 sidecar（钉版 harness），WebView2 直载 `http://127.0.0.1:<port>`，原生能力经 `window.__DSH_DESKTOP__` 桥注入，浏览器中自动退化。
 
-**Architecture:** 壳（Rust，不含前端）→ 单实例锁 → 初始化 `~/.dsh/profiles/desktop`（自带 node+pnpm，公开 `dsh plugin` 命令面）→ 选空闲端口拉起 sidecar（`dsh --profile desktop --port N`）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 加载；崩溃退避重启 3 次，失败展示壳内错误页。sidecar = 随包 Node + pnpm standalone + 精确钉死的 `@deepseek-ai/dsh` 依赖树；桥接插件 `@linxin666/dsh-desktop-bridge` 是 npm 发布的外部插件（`dsh.bundle` patch + client bundle 经 `__DSH_BOOT__` 图加载），只做特性检测 + Tauri IPC 桥，零业务逻辑。
+**Architecture:** 壳（Rust，不含前端）→ 单实例锁 → 初始化 `~/.dsh/profiles/desktop`（自带 node+pnpm，公开 `dsh plugin` 命令面）→ 选空闲端口拉起 sidecar（`dsh --profile desktop --port N`）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 加载；崩溃退避重启 3 次，失败展示壳内错误页。sidecar = 随包 Node + pnpm standalone + 精确钉死的 `@deepseek-ai/dsh` 依赖树；桥接插件 `@JiaosSir/dsh-desktop-bridge` 是 npm 发布的外部插件（`dsh.bundle` patch + client bundle 经 `__DSH_BOOT__` 图加载），只做特性检测 + Tauri IPC 桥，零业务逻辑。
 
 **Tech Stack:** Rust（Tauri 2 + desktop-core crate，无 tauri 依赖纯逻辑 + tokio 进程监督）、Node 22 LTS + pnpm standalone（仅 sidecar 与构建期）、TypeScript（bridge 插件，tsdown 双端构建）、NSIS（每用户）+ portable zip、GitHub Actions（Windows runner）。
 
@@ -40,7 +40,7 @@
 | D4 | 日志落 `~/.dsh/desktop/logs/`（尊重 DSH_HOME），sidecar 与壳各一个滚动文件（1MB×2）；错误页/托盘/设置均有"打开日志目录" | 规格 §8b 已把桌面自有状态放在 `~/.dsh/desktop/`，日志同址便于发现 |
 | D5 | 等待/错误页是壳内置静态资产（`apps/desktop/dist/{index.html,error.html}` 作为 frontendDist），就绪后 `webview.navigate(url)` 切到 sidecar | 壳不含前端，但必须有无 sidecar 时的本地错误面 |
 | D6 | bridge 的 web→desktop 插件同步、重启宿主等**所有** dsh 命令由壳执行（desktop-core 模块），bridge 只调 IPC；同步差异清单也由壳读两份 profile manifest 计算 | 规格决策 5："桥接插件业务逻辑零" |
-| D7 | bridge 包名 `@linxin666/dsh-desktop-bridge`（规格提案；发布前以实际 scope 为准），版本与壳同号；**bridge 不打包进 sidecar**——首启由壳执行 `dsh plugin --profile desktop add @linxin666/dsh-desktop-bridge@<壳版本>` 钉死安装（规格决策 4/5），开发期用 env `DSH_DESKTOP_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接；发布管线先 npm publish bridge 再出安装包 | 同一原子产物单版本号（规格决策 4）；bridge 与用户插件同驻 profile、同走 npm 分发 |
+| D7 | bridge 包名 `@JiaosSir/dsh-desktop-bridge`（规格提案；发布前以实际 scope 为准），版本与壳同号；**bridge 不打包进 sidecar**——首启由壳执行 `dsh plugin --profile desktop add @JiaosSir/dsh-desktop-bridge@<壳版本>` 钉死安装（规格决策 4/5），开发期用 env `DSH_DESKTOP_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接；发布管线先 npm publish bridge 再出安装包 | 同一原子产物单版本号（规格决策 4）；bridge 与用户插件同驻 profile、同走 npm 分发 |
 | D8 | 首次引导在页面内做（复用 web onboarding）：API key 写 `~/.dsh/.env`（壳写文件）、工作区经原生文件夹对话框选定后写 `~/.dsh/desktop/config.json` | 规格 §8 |
 | D9 | CI 冒烟 = 壳 `DSH_DESKTOP_SMOKE=1` 自测模式：初始化 profile → 拉起 sidecar → 等就绪 → GET `/` 断言 200 与标题 → 退出 0；不开窗口，不依赖 GUI 会话 | 规格 §11.1"桌面层新增冒烟测试"的落地形态 |
 | D10 | Node 钉 22 LTS 最新（≥22.19）；pnpm standalone 钉 10.x 最新；harness 钉 `0.1.0-rc.5`（计划时最新，实现期以组装脚本常量统一升级） | 规格"钉死版本" |
@@ -141,8 +141,8 @@ packages:
   "private": true,
   "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "bridge:build": "pnpm --filter @linxin666/dsh-desktop-bridge build",
-    "bridge:test": "pnpm --filter @linxin666/dsh-desktop-bridge test",
+    "bridge:build": "pnpm --filter @JiaosSir/dsh-desktop-bridge build",
+    "bridge:test": "pnpm --filter @JiaosSir/dsh-desktop-bridge test",
     "sidecar:assemble": "node scripts/assemble-sidecar.mjs",
     "desktop:dev": "pnpm --dir apps/desktop tauri dev",
     "desktop:build": "pnpm --dir apps/desktop tauri build",
@@ -258,7 +258,7 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 
 ```json
 {
-  "name": "@linxin666/dsh-desktop-bridge",
+  "name": "@JiaosSir/dsh-desktop-bridge",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
@@ -306,7 +306,7 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 # 浏览器半部（exports "./client"）由 dsh.client 声明加载进 Web GUI。
 - insert:
     - id: desktop-bridge
-      name: '@linxin666/dsh-desktop-bridge'
+      name: '@JiaosSir/dsh-desktop-bridge'
 ```
 
 - [ ] **Step 3** 创建最小宿主半部 `src/index.ts`（阶段 1 只注册存活；阶段 4 加审批旁听与路由）：
@@ -369,12 +369,12 @@ export default defineConfig({
   format: ['esm', 'iife'],
   dts: true,
   // client IIFE 输出必须形如:
-  //   window.__ModuleLoader__.load({ id: "@linxin666/dsh-desktop-bridge", factory: require => {...} })
+  //   window.__ModuleLoader__.load({ id: "@JiaosSir/dsh-desktop-bridge", factory: require => {...} })
   // 具体 banner/footer 以实现期对 dsh-web-ui 构建产物（lib/client.js 首行）的核对为准
 })
 ```
 
-- [ ] **Step 6** 写退化行为测试 `tests/bridge.client.spec.ts`（vitest + jsdom）：无 `window.__DSH_DESKTOP__` 时 `detectBridge()` 返回 `null` 且 client 入口不抛错；有 mock 桥时返回同一对象。运行 `pnpm --filter @linxin666/dsh-desktop-bridge test` → 通过。
+- [ ] **Step 6** 写退化行为测试 `tests/bridge.client.spec.ts`（vitest + jsdom）：无 `window.__DSH_DESKTOP__` 时 `detectBridge()` 返回 `null` 且 client 入口不抛错；有 mock 桥时返回同一对象。运行 `pnpm --filter @JiaosSir/dsh-desktop-bridge test` → 通过。
 
 - [ ] **Step 7** 提交：`git commit -m "chore: tauri shell scaffold and bridge package skeleton"`。
 
@@ -643,7 +643,7 @@ pub struct ProfileInitOutcome { pub ran_adds: Vec<String> }
 /// 然后检查 dependencies 是否含 bridge（含 @scope 精确匹配），缺则 add。
 /// 两个 add 都通过 bundled pnpm + PATH 注入执行（F4/F5 语义复刻）。
 /// bridge 安装 spec：env DSH_DESKTOP_BRIDGE_SPEC 优先（开发期 link: 覆盖，D7），
-/// 缺省 `@linxin666/dsh-desktop-bridge@<compile-time 壳版本>`。
+/// 缺省 `@JiaosSir/dsh-desktop-bridge@<compile-time 壳版本>`。
 pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcome, String>;
 
 /// web→desktop 单向同步清单：读两份 profile 的 package.json dependencies，
@@ -655,7 +655,7 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 
 - [ ] **Step 2** 实现（关键点：`dsh plugin` 的真实参数是 `plugin --profile desktop add <pkg>`，程序 = sidecar node.exe，脚本 = `node_modules/@deepseek-ai/dsh/lib/bin.js`；子进程 env 注入 `sidecar/pnpm` 到 PATH 头部 + `DSH_TELEMETRY_DISABLED=1`；输出逐行进日志；非零退出返回带尾部输出的错误）。
 
-- [ ] **Step 3** 真实冒烟前置：临时 DSH_HOME 下跑 `ensure_profile_init` 一次（触网），断言 profile 的 `package.json` 里 `dsh.profile.bundles` 最终 = `['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','@linxin666/dsh-desktop-bridge']`（F4 的 reconcile 语义）。此条作为**本阶段验收**，不写进常跑单测（触网）。
+- [ ] **Step 3** 真实冒烟前置：临时 DSH_HOME 下跑 `ensure_profile_init` 一次（触网），断言 profile 的 `package.json` 里 `dsh.profile.bundles` 最终 = `['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','@JiaosSir/dsh-desktop-bridge']`（F4 的 reconcile 语义）。此条作为**本阶段验收**，不写进常跑单测（触网）。
 
 ### 任务 3.2：首启编排与 config.json
 
@@ -711,7 +711,7 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 
 ## 阶段 4：桥接插件（原生能力 + 特性检测退化）
 
-**目标**：`@linxin666/dsh-desktop-bridge` 成为完整外部插件：宿主半部旁听审批事件并推送 SSE；client 半部在 Web UI 内提供"桌面"设置区（开机自启、快捷键显示、打开日志、重启宿主、查看最新版）、工作区路径选择桥、通知镜像；无 `window.__DSH_DESKTOP__` 时全量退化（等价纯浏览器行为）。开发期以 `link:` 装入 desktop profile。
+**目标**：`@JiaosSir/dsh-desktop-bridge` 成为完整外部插件：宿主半部旁听审批事件并推送 SSE；client 半部在 Web UI 内提供"桌面"设置区（开机自启、快捷键显示、打开日志、重启宿主、查看最新版）、工作区路径选择桥、通知镜像；无 `window.__DSH_DESKTOP__` 时全量退化（等价纯浏览器行为）。开发期以 `link:` 装入 desktop profile。
 
 **产出物**：
 - `packages/dsh-desktop-bridge/`（宿主半部：审批旁听 + `/api/desktop/*` 路由；client 半部：Slot 设置区 + 通知订阅 + path-picker 桥）
@@ -838,7 +838,7 @@ jobs:
         with: { node-version: 22, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install --frozen-lockfile
       - run: pnpm bridge:test
-      - run: pnpm --filter @linxin666/dsh-desktop-bridge publish --access public --no-git-checks
+      - run: pnpm --filter @JiaosSir/dsh-desktop-bridge publish --access public --no-git-checks
         env: { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }
 
   build-release:
