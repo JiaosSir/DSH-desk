@@ -8,15 +8,6 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "DeepSeek Harness",
-        "width": 1280,
-        "height": 800,
-        "center": true
-      }
-    ],
     "security": {
       "csp": null
     }

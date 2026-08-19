@@ -16,9 +16,13 @@ packages/dsh-desktop-bridge/lib/
 # Portable zip output
 dist-portable/
 
+# 下载缓存（组装脚本自动填充；手动下载也可放这里）
+.downloads/
+
 # Logs and env
 *.log
 .env
+.artifacts/
 
 # Editor/OS
 .vscode/

@@ -5,6 +5,7 @@
   "scripts": {
     "bridge:build": "pnpm --filter @JiaosSir/dsh-desktop-bridge build",
     "bridge:test": "pnpm --filter @JiaosSir/dsh-desktop-bridge test",
+    "test:scripts": "node --test scripts/",
     "sidecar:assemble": "node scripts/assemble-sidecar.mjs",
     "desktop:dev": "pnpm --dir apps/desktop tauri dev",
     "desktop:build": "pnpm --dir apps/desktop tauri build",
