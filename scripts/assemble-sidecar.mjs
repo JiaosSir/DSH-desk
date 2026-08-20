@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url'
 // ── 钉版常量（实现期统一升级点，与计划 D10 对齐） ─────────────────────────
 export const NODE_VERSION = '24.19.0' // Node 24 LTS（harness engines >=24.0.0）
 export const PNPM_VERSION = '11.7.0' // 与本机验证环境一致（pnpm ≥10 满足 profile 语义）
-export const DSH_VERSION = '0.1.0-rc.7' // npm 最新 rc（@deepseek-ai/dsh，2026-08）
+export const DSH_VERSION = '0.1.0-rc.8' // npm 最新 rc（next 标签；@deepseek-ai/dsh，2026-08）
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 export const SIDECAR_DIR = join(REPO_ROOT, 'apps', 'desktop', 'src-tauri', 'sidecar-dist')

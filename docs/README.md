@@ -77,7 +77,7 @@ $side = "D:\project\open-source\DSH-desk\apps\desktop\src-tauri\sidecar-dist"
 $env:Path = "$side\pnpm;" + $env:Path
 
 # 注意必须钉版本：npm 的 latest 标签是废弃的 0.0.1-rc.1（依赖已下架的包）
-& "$side\node\node.exe" "$side\node_modules\@deepseek-ai\dsh\lib\bin.js" plugin --profile desktop add "@deepseek-ai/dsh-web-app@0.1.0-rc.7"
+& "$side\node\node.exe" "$side\node_modules\@deepseek-ai\dsh\lib\bin.js" plugin --profile desktop add "@deepseek-ai/dsh-web-app@0.1.0-rc.8"
 ```
 
 初始化后 `~/.dsh/profiles/desktop/pnpm-workspace.yaml` 需要 `allowBuilds`（koffi/node-pty），否则 pnpm 以非零码退出。最终 profile 的 `package.json` 应含：
@@ -136,7 +136,7 @@ pnpm --dir apps/desktop tauri build --bundles nsis       # NSIS 每用户安装�
 ## 常见问题（开发机实测）
 
 - **cargo 报 `SEC_E_NO_CREDENTIALS` / npm 下载极慢**：schannel 系工具（cargo/curl）在某些网络环境不可用；Node 系（pnpm/脚本）走 OpenSSL 不受影响。cargo 配 rsproxy 镜像 + 完整访问权限即可；仓库根 `.npmrc` 已放宽 pnpm 下载超时。
-- **`dsh plugin add` 失败 404 `dsh-frontend`**：npm `latest` 标签是废弃版本，必须显式钉 `@0.1.0-rc.7`（见上）。
+- **`dsh plugin add` 失败 404 `dsh-frontend`**：npm `latest` 标签是废弃版本，必须显式钉 `@0.1.0-rc.8`（见上）。
 - **pnpm 报 `ERR_PNPM_IGNORED_BUILDS`**：profile 与 sidecar 的 `pnpm-workspace.yaml` 都要有 `allowBuilds`（koffi/node-pty）；koffi 的二进制经 optional 依赖 `@koromix/koffi-win32-x64` 分发，其 install 脚本检测到二进制后自动跳过编译，无需本机 C++ 工具链。
 - **组装脚本缺 `--no-optional` 曾致宿主启动失败**：sharp/koffi 的平台二进制都走 optionalDependencies，安装必须保留 optional。
 - **tauri dev 反复重建**：watcher 会把 330MB 的 `sidecar-dist` 当源码监控；开发期建议用方式 B（直接跑 exe），watcher 忽略配置待优化。
