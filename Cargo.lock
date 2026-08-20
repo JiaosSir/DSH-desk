@@ -723,7 +723,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "desktop-core"
+name = "desk-core"
 version = "0.1.0"
 dependencies = [
  "dirs",
@@ -839,10 +839,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dsh-desktop"
+name = "dsh-desk"
 version = "0.1.0"
 dependencies = [
- "desktop-core",
+ "desk-core",
  "serde",
  "serde_json",
  "tauri",

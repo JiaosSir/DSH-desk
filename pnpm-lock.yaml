@@ -14,7 +14,7 @@ importers:
         specifier: ^2
         version: 2.11.4
 
-  packages/dsh-desktop-bridge:
+  packages/dsh-desk-bridge:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.1

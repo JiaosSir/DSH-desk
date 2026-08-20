@@ -338,7 +338,7 @@ export async function assemble(opts = {}) {
   rmSync(tmpDir, { recursive: true, force: true })
   writeFileSync(
     join(sidecarDir, 'package.json'),
-    JSON.stringify({ private: true, name: 'dsh-desktop-sidecar' }, null, 2) + '\n',
+    JSON.stringify({ private: true, name: 'dsh-desk-sidecar' }, null, 2) + '\n',
   )
   writeFileSync(
     join(sidecarDir, 'VERSION.json'),

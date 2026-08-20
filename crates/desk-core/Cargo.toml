@@ -1,8 +1,8 @@
 [package]
-name = "desktop-core"
+name = "desk-core"
 version = "0.1.0"
 edition = "2021"
-description = "dsh-desktop core: sidecar supervision, port negotiation, profile initialization, and rolling logs (no tauri dependency)"
+description = "desk-core: sidecar supervision, port negotiation, profile initialization, and rolling logs (no tauri dependency)"
 license = "MIT"
 publish = false
 

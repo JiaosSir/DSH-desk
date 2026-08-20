@@ -78,7 +78,7 @@
         document.getElementById('detail').hidden = false
         document.getElementById('detail').textContent = detail
       }
-      const bridge = window.__DSH_DESKTOP__
+      const bridge = window.__DSH_DESK__
       if (bridge && typeof bridge.quit === 'function') {
         document.getElementById('actions').hidden = false
         document.getElementById('retry').addEventListener('click', () => void bridge.restartHost())

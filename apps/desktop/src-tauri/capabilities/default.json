@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "dsh-desktop main window capability; remote URLs restricted to the local sidecar origin",
+  "description": "DSH-desk 主窗口能力；远程 URL 仅限本机 sidecar 源",
   "windows": ["main"],
   "remote": { "urls": ["http://127.0.0.1:*"] },
   "permissions": ["core:default", "opener:default", "dialog:default"]

@@ -1,5 +1,5 @@
 /**
- * dsh-desktop-bridge 构建配置：宿主半部（lib/index.js，ESM，从 tsc 产物打包，
+ * dsh-desk-bridge 构建配置：宿主半部（lib/index.js，ESM，从 tsc 产物打包，
  * 这样纯类型导入会被擦除）+ 浏览器半部（lib/client.js，闭包工厂产物，通过
  * window.__ModuleLoader__.load 注册——与上游 client bundle 的交接方式一致）。
  *
@@ -11,7 +11,7 @@
 import { defineConfig } from 'tsdown'
 
 /** 插件 id，烙印进 __ModuleLoader__.load 交接调用。 */
-const ID = '@JiaosSir/dsh-desktop-bridge'
+const ID = '@JiaosSir/dsh-desk-bridge'
 
 /** 平台种子模块（上游 packages/client/web/src/platform.ts）。 */
 const PLATFORM_MODULES = [

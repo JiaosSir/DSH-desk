@@ -1,4 +1,4 @@
-//! dsh-desktop core: sidecar supervision, port negotiation, profile
+//! desk-core: sidecar supervision, port negotiation, profile
 //! initialization, and rolling logs. Pure Rust with no Tauri dependency so
 //! every behavior is unit-testable without a windowing environment.
 

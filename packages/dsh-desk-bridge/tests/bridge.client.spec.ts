@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index'
 import { detectBridge } from '../src/client/bridge'
-import type { DesktopBridge } from '../src/client/bridge'
+import type { DeskBridge } from '../src/client/bridge'
 
 /** client 根上下文的最小 mock（阶段 1 尚不需要任何服务）。 */
 function mockCtx() {
@@ -19,7 +19,7 @@ function mockCtx() {
   } as never
 }
 
-function mockBridge(): DesktopBridge {
+function mockBridge(): DeskBridge {
   return {
     available: true,
     pickFolder: vi.fn(async () => null),
@@ -34,22 +34,22 @@ function mockBridge(): DesktopBridge {
 }
 
 describe('桥能力检测', () => {
-  it('纯浏览器（无 __DSH_DESKTOP__）退化为 null', () => {
-    delete window.__DSH_DESKTOP__
+  it('纯浏览器（无 __DSH_DESK__）退化为 null', () => {
+    delete window.__DSH_DESK__
     expect(detectBridge()).toBeNull()
   })
 
   it('有桥时原样返回注入对象', () => {
     const bridge = mockBridge()
-    window.__DSH_DESKTOP__ = bridge
+    window.__DSH_DESK__ = bridge
     expect(detectBridge()).toBe(bridge)
-    delete window.__DSH_DESKTOP__
+    delete window.__DSH_DESK__
   })
 })
 
 describe('client 插件入口', () => {
   it('无桥时是静默空操作', () => {
-    delete window.__DSH_DESKTOP__
+    delete window.__DSH_DESK__
     const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     expect(() => apply(mockCtx())).not.toThrow()
     expect(info).toHaveBeenCalledWith(expect.stringContaining('已退化'))
@@ -58,9 +58,9 @@ describe('client 插件入口', () => {
 
   it('有桥时暂不触碰任何桥方法', () => {
     const bridge = mockBridge()
-    window.__DSH_DESKTOP__ = bridge
+    window.__DSH_DESK__ = bridge
     expect(() => apply(mockCtx())).not.toThrow()
     expect(bridge.notify).not.toHaveBeenCalled()
-    delete window.__DSH_DESKTOP__
+    delete window.__DSH_DESK__
   })
 })

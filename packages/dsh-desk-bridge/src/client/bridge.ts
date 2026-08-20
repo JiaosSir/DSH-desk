@@ -2,13 +2,13 @@
  * 特性检测 + Tauri IPC 协议面——Web UI 与桌面壳之间唯一的桥接面。
  * 每个方法与 apps/desktop/src-tauri/src/commands.rs 里的 #[tauri::command]
  * 一一对应；壳经 initialization script 把具体对象注入为
- * window.__DSH_DESKTOP__。纯浏览器里该全局对象不存在，所有调用方必须经
+ * window.__DSH_DESK__。纯浏览器里该全局对象不存在，所有调用方必须经
  * detectBridge 优雅退化。
- * @module @JiaosSir/dsh-desktop-bridge/client/bridge
+ * @module @JiaosSir/dsh-desk-bridge/client/bridge
  */
 
 /** Tauri 壳注入的桌面桥协议。 */
-export interface DesktopBridge {
+export interface DeskBridge {
   /** 每个方法都由壳背书时为 true。 */
   readonly available: boolean
   /** 原生文件夹选择器；取消时返回 null。 */
@@ -31,7 +31,7 @@ export interface DesktopBridge {
 
 declare global {
   interface Window {
-    __DSH_DESKTOP__?: DesktopBridge
+    __DSH_DESK__?: DeskBridge
   }
 }
 
@@ -39,8 +39,8 @@ declare global {
  * 特性检测：返回注入的桥；纯浏览器返回 null。
  * 所有桌面 UI 必须把 null 视为"退化为等价的纯浏览器行为"。
  */
-export function detectBridge(): DesktopBridge | null {
-  return typeof window !== 'undefined' && window.__DSH_DESKTOP__ !== undefined
-    ? window.__DSH_DESKTOP__
+export function detectBridge(): DeskBridge | null {
+  return typeof window !== 'undefined' && window.__DSH_DESK__ !== undefined
+    ? window.__DSH_DESK__
     : null
 }

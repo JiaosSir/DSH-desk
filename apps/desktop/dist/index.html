@@ -51,9 +51,9 @@
       <button id="logs">打开日志目录</button>
     </div>
     <script>
-      // The shell injects window.__DSH_DESKTOP__ via an initialization script.
+      // The shell injects window.__DSH_DESK__ via an initialization script.
       // In a plain browser (this page opened directly) the buttons stay hidden.
-      const bridge = window.__DSH_DESKTOP__
+      const bridge = window.__DSH_DESK__
       if (bridge && typeof bridge.quit === 'function') {
         document.getElementById('actions').hidden = false
         document.getElementById('quit').addEventListener('click', () => void bridge.quit())

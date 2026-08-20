@@ -1,6 +1,6 @@
 {
-  "name": "@JiaosSir/dsh-desktop-bridge",
-  "description": "Desktop bridge for the dsh web GUI: capability detection plus a thin Tauri IPC bridge (window.__DSH_DESKTOP__) with zero business logic. In a plain browser the bundle degrades to a no-op.",
+  "name": "@JiaosSir/dsh-desk-bridge",
+  "description": "Desk bridge for the dsh web GUI: capability detection plus a thin Tauri IPC bridge (window.__DSH_DESK__) with zero business logic. In a plain browser the bundle degrades to a no-op.",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
@@ -76,7 +76,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsh-desktop/dsh-desktop.git",
-    "directory": "packages/dsh-desktop-bridge"
+    "url": "https://github.com/JiaosSir/DSH-desk.git",
+    "directory": "packages/dsh-desk-bridge"
   }
 }

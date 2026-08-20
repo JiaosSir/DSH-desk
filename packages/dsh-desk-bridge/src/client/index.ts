@@ -1,17 +1,17 @@
 /**
- * @JiaosSir/dsh-desktop-bridge —— 浏览器半部。
+ * @JiaosSir/dsh-desk-bridge —— 浏览器半部。
  *
  * 一个经 __DSH_BOOT__ 模块图（见 package.json 的 `dsh.client` 声明）由 Web
  * 壳加载的 Cordis client 插件。它只做特性检测：有桌面桥时挂"桌面"设置区与
  * 通知镜像（阶段 4）；纯浏览器里退化为空操作，同一份 UI 功能保持完整。
- * @module @JiaosSir/dsh-desktop-bridge/client
+ * @module @JiaosSir/dsh-desk-bridge/client
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { detectBridge } from './bridge'
 
 /** 本插件拥有的 locale 命名空间。 */
-const NS = 'dsh-desktop-bridge'
+const NS = 'dsh-desk-bridge'
 
 /** 所需服务（阶段 4：slots、locale、settings）。 */
 export const inject = [] as const

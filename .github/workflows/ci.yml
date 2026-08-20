@@ -2,21 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 jobs:
-  desktop-core:
+  desk-core:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "crates/desktop-core -> target"
-      - run: cargo fmt -p desktop-core --check
-      - run: cargo clippy -p desktop-core -- -D warnings
-      - run: cargo test -p desktop-core
+          workspaces: "crates/desk-core -> target"
+      - run: cargo fmt -p desk-core --check
+      - run: cargo clippy -p desk-core -- -D warnings
+      - run: cargo test -p desk-core
 
   bridge:
     runs-on: ubuntu-latest

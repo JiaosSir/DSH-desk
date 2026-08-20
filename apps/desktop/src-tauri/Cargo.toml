@@ -1,13 +1,13 @@
 [package]
-name = "dsh-desktop"
+name = "dsh-desk"
 version = "0.1.0"
-description = "DeepSeek Harness desktop shell (Tauri 2)"
-authors = ["dsh-desktop <dev@dsh-desktop.local>"]
+description = "DSH-desk: DeepSeek Harness Web UI 的 Windows 桌面壳（Tauri 2）"
+authors = ["dsh-desk <dev@dsh-desk.local>"]
 edition = "2021"
 license = "MIT"
 
 [lib]
-name = "dsh_desktop_lib"
+name = "dsh_desk_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -20,4 +20,4 @@ tauri-plugin-dialog = "2"
 tokio = { version = "1", features = ["sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-desktop-core = { path = "../../../crates/desktop-core" }
+desk-core = { path = "../../../crates/desk-core" }

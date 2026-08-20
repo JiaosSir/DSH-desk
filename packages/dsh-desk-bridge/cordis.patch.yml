@@ -1,4 +1,4 @@
-# dsh-desktop-bridge bundle patch：把桥接插件行插进 desktop profile 名单。
+# dsh-desk-bridge bundle patch：把桥接插件行插进 desktop profile 名单。
 # 经 `dsh.bundle.patch` manifest 字段作为 profile bundle 层生效；
 # 启用方式：`dsh plugin --profile desktop add <本包>`。
 #
@@ -7,5 +7,5 @@
 # 声明让浏览器半部（exports "./client"，served at /plugins/<id>/client.js）
 # 加载进 Web GUI。
 - insert:
-    - id: desktop-bridge
-      name: '@JiaosSir/dsh-desktop-bridge'
+    - id: desk-bridge
+      name: '@JiaosSir/dsh-desk-bridge'

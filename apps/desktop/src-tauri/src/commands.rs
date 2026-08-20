@@ -1,4 +1,4 @@
-//! 壳侧 IPC 命令：桥接插件（window.__DSH_DESKTOP__）调用的后端实现。
+//! 壳侧 IPC 命令：桥接插件（window.__DSH_DESK__）调用的后端实现。
 //! 阶段 2 实现首批命令；阶段 3/4 追加文件夹选择、自启、通知、Releases 等。
 
 use serde::Serialize;

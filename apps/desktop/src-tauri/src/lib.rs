@@ -1,9 +1,9 @@
-//! dsh-desktop：DeepSeek Harness Web UI 的 Tauri 2 壳。
+//! DSH-desk：DeepSeek Harness Web UI 的 Tauri 2 壳。
 //!
 //! 壳自身不含前端：`apps/desktop/dist/` 只承载本地等待页/错误页。启动时壳
 //! 监督随包分发的 harness sidecar（自带 node + 钉版 `@deepseek-ai/dsh`），
 //! 等 sidecar 打印就绪 URL 行后把 WebView 导航到 `http://127.0.0.1:<port>`；
-//! 崩溃按退避自动重启，耗尽后展示错误页。原生能力经 `window.__DSH_DESKTOP__`
+//! 崩溃按退避自动重启，耗尽后展示错误页。原生能力经 `window.__DSH_DESK__`
 //! 桥暴露给 Web UI 里的桥接插件。
 
 mod bridge;
@@ -13,9 +13,9 @@ mod tray;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use desktop_core::logs::RollingLog;
-use desktop_core::supervisor::{Supervisor, SupervisorEvent, SupervisorOptions};
-use desktop_core::{logs, paths, ports};
+use desk_core::logs::RollingLog;
+use desk_core::supervisor::{Supervisor, SupervisorEvent, SupervisorOptions};
+use desk_core::{logs, paths, ports};
 use tauri::Manager;
 
 use crate::commands::DesktopStatus;
@@ -55,13 +55,13 @@ pub fn run() {
                 cmd_tx,
                 logs_dir: logs_dir.clone(),
             });
-            // 窗口在代码里创建：等待页之外还需注入 __DSH_DESKTOP__ 桥。
+            // 窗口在代码里创建：等待页之外还需注入 __DSH_DESK__ 桥。
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("DeepSeek Harness")
+            .title("DSH-desk")
             .inner_size(1280.0, 800.0)
             .center()
             .initialization_script(bridge::BRIDGE_SCRIPT)
@@ -216,14 +216,14 @@ async fn supervisor_task(
 }
 
 /// 解析 sidecar 根目录：`SIDECAR_ROOT` 环境变量优先（开发/冒烟），
-/// 否则 `<资源目录>/sidecar`。
+/// 否则 `<资源目录>/sidecar-dist`。
 fn resolve_sidecar_root(app: &tauri::AppHandle) -> PathBuf {
     if let Some(root) = paths::sidecar_root() {
         return root;
     }
     app.path()
         .resource_dir()
-        .map(|dir| dir.join("sidecar"))
+        .map(|dir| dir.join("sidecar-dist"))
         .unwrap_or_default()
 }
 

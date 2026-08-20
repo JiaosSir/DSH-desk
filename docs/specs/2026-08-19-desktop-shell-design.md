@@ -1,8 +1,8 @@
-# dsh-desktop 设计规格：DeepSeek Harness Web UI 的 Windows 桌面分发
+# DSH-desk 设计规格：DeepSeek Harness Web UI 的 Windows 桌面分发
 
 - 日期：2026-08-19
 - 状态：已确认（头脑风暴定案）
-- 仓库：`dsh-desktop`（独立仓库，本文档即仓库内规格）
+- 仓库：`DSH-desk`（独立仓库，本文档即仓库内规格）
 
 ## 1. 目标与不变式
 
@@ -38,11 +38,11 @@
 ## 4. 总体架构与进程模型（双仓库模型）
 
 ```
-┌─ dsh-desktop（独立仓库） ─────────────────────────────┐   ┌─ deepseek-harness（上游，仅发布消费） ─┐
+┌─ DSH-desk（独立仓库） ─────────────────────────────┐   ┌─ deepseek-harness（上游，仅发布消费） ─┐
 │  Tauri 2 壳（Rust）                                    │   │  现有发布管线：npm 上的                │
 │   ├─ 窗口 / 托盘 / 通知 / 快捷键 / 单实例               │   │  @deepseek-ai/dsh-cli、dsh-web-app、   │
 │   ├─ sidecar 监督（拉起、端口协商、重试、崩溃重启）      │◀──│  dsh-web-frontend（dist）等包           │
-│   ├─ 桥接插件包（packages/dsh-desktop-bridge）         │   └───────────────────────────────────────┘
+│   ├─ 桥接插件包（packages/dsh-desk-bridge）         │   └───────────────────────────────────────┘
 │   └─ 首次运行初始化 ~/.dsh/profiles/desktop            │
 │      拉起: node dsh web --profile desktop --port <壳选定的空闲端口>
 │      WebView2 加载 http://127.0.0.1:<port>             │
@@ -57,16 +57,16 @@
 4. **更新单元**：壳 exe + sidecar 目录是**一个原子产物**，单版本号同时烙印两者。
 5. **单实例**：二次启动不拉起新进程，只聚焦已有窗口。
 
-**组件清单**（dsh-desktop 新增面）：
+**组件清单**（DSH-desk 新增面）：
 
 | 组件 | 位置 | 职责 |
 |---|---|---|
 | Tauri 壳（Rust） | `apps/desktop/src-tauri` | 窗口/托盘/通知/快捷键/监督/单实例 |
-| 桌面核心 crate | `crates/desktop-core` | sidecar 监督、端口协商、profile 初始化、日志 |
-| 桥接插件 | `packages/dsh-desktop-bridge`（npm 发布） | 在 Web UI 内暴露桌面能力（原生文件夹选择、通知镜像、窗口控制），特性检测式，无则退化 |
+| 桌面核心 crate | `crates/desk-core` | sidecar 监督、端口协商、profile 初始化、日志 |
+| 桥接插件 | `packages/dsh-desk-bridge`（npm 发布） | 在 Web UI 内暴露桌面能力（原生文件夹选择、通知镜像、窗口控制），特性检测式，无则退化 |
 | sidecar 组装脚本 | `scripts/` | Node 运行时下载、pnpm 钉版安装、裁剪 |
 
-**数据流**：用户双击 → 壳（单实例检查）→ 拉起 sidecar → 宿主就绪 → WebView 加载 → 浏览器与宿主间沿用现有 RPC/事件流；原生能力经 Tauri IPC（壳注入 `window.__DSH_DESKTOP__` 桥）暴露给桥接插件，插件再以 Slot 方式融入 UI。**宿主核心零改动**。
+**数据流**：用户双击 → 壳（单实例检查）→ 拉起 sidecar → 宿主就绪 → WebView 加载 → 浏览器与宿主间沿用现有 RPC/事件流；原生能力经 Tauri IPC（壳注入 `window.__DSH_DESK__` 桥）暴露给桥接插件，插件再以 Slot 方式融入 UI。**宿主核心零改动**。
 
 ## 5. Profile 策略与插件同步
 
@@ -75,9 +75,9 @@
 **首次运行初始化**：桌面端用自带 node + pnpm standalone 依次执行（全程走公开 CLI 命令面，不碰内部 API）：
 
 1. `dsh plugin --profile desktop add @deepseek-ai/dsh-web-app`（隐式初始化 profile）
-2. `dsh plugin --profile desktop add @JiaosSir/dsh-desktop-bridge`（注册桥接插件；npm 包名提案，以实际发布 scope 为准）
+2. `dsh plugin --profile desktop add @JiaosSir/dsh-desk-bridge`（注册桥接插件；npm 包名提案，以实际发布 scope 为准）
 
-reconcile 机制自动写入 `dsh.profile.bundles`，最终层栈 = `dsh-base` + `dsh-web-app` + `dsh-desktop-bridge`。初始化幂等，失败可安全重跑。
+reconcile 机制自动写入 `dsh.profile.bundles`，最终层栈 = `dsh-base` + `dsh-web-app` + `dsh-desk-bridge`。初始化幂等，失败可安全重跑。
 
 **web → desktop 单向同步功能**（设置内）：读取 `~/.dsh/profiles/web/` manifest，与 desktop profile 对比列出差异，用户勾选后逐个以 `dsh plugin --profile desktop add <pkg>` 导入。为已有 web 插件集的开发者提供迁移路径；不做双向镜像。
 
@@ -108,14 +108,14 @@ reconcile 机制自动写入 `dsh.profile.bundles`，最终层栈 = `dsh-base` +
 | 通知 | 审批请求、长任务完成 | 仅镜像通知，动作回 Web UI |
 | 全局快捷键 | 默认 `Ctrl+Alt+D` 唤起/隐藏，可改 | v1 只做唤起/隐藏 |
 | 单实例锁 | 二次启动聚焦已有窗口 | Tauri 内置 |
-| 原生文件夹选择 | 首次引导选工作区 + UI 内 path-picker 桥 | 经 `window.__DSH_DESKTOP__` 桥 |
+| 原生文件夹选择 | 首次引导选工作区 + UI 内 path-picker 桥 | 经 `window.__DSH_DESK__` 桥 |
 | 开机自启 | 设置项，默认关 | |
 | 窗口状态记忆 | 尺寸/位置持久化 | 首屏默认 1280×800 居中 |
 | 日志落地 | 滚动日志 + 一键打开目录 | |
 
 **明确不做（v1）**：`dsh://` 深链协议、托盘常驻模式、遥测（永久）、多窗口/多工作区管理、Linux/macOS 打包、原生文件系统直连（harness 自带 fs 沙箱已够）。
 
-**桥接插件边界**：`dsh-desktop-bridge` 只做"能力探测 + 调 Tauri IPC"，不做业务逻辑；业务逻辑全部留在宿主与现有 UI。浏览器里加载同一份 UI 时桥接自动退化，行为等价。
+**桥接插件边界**：`dsh-desk-bridge` 只做"能力探测 + 调 Tauri IPC"，不做业务逻辑；业务逻辑全部留在宿主与现有 UI。浏览器里加载同一份 UI 时桥接自动退化，行为等价。
 
 ## 8. 首次引导体验
 
@@ -149,13 +149,13 @@ reconcile 机制自动写入 `dsh.profile.bundles`，最终层栈 = `dsh-base` +
 | 插件分发 | 公共 npm registry（`dsh plugin` 原生路径），与内置安装 UI 同源 |
 | 支持面 | README + FAQ + 日志目录指引；issue tracker 作为反馈渠道 |
 
-## 10. dsh-desktop 仓库布局（提案）
+## 10. DSH-desk 仓库布局（提案）
 
 ```
-dsh-desktop/
+DSH-desk/
 ├─ apps/desktop/              # Tauri 2 壳（Rust）+ 等待/错误页 stub
-├─ crates/desktop-core/       # sidecar 监督、端口协商、profile 初始化、日志
-├─ packages/dsh-desktop-bridge/  # 桥接插件（npm 发布；host 注册 + client bundle
+├─ crates/desk-core/       # sidecar 监督、端口协商、profile 初始化、日志
+├─ packages/dsh-desk-bridge/  # 桥接插件（npm 发布；host 注册 + client bundle
 │                               #   特性检测 + Slot：文件夹选择/通知镜像/窗口控制）
 ├─ scripts/                   # sidecar 组装（node 运行时下载、pnpm 钉版安装、裁剪）
 ├─ .github/workflows/         # Windows CI：构建 + 冒烟 + tag 发布

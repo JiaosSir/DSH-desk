@@ -11,7 +11,7 @@ apps/desktop/src-tauri/sidecar-dist/*
 !apps/desktop/src-tauri/sidecar-dist/README.md
 
 # Build artifacts of the bridge package
-packages/dsh-desktop-bridge/lib/
+packages/dsh-desk-bridge/lib/
 
 # Portable zip output
 dist-portable/

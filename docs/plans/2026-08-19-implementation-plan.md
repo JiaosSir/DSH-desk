@@ -1,13 +1,13 @@
-# dsh-desktop 实施计划：DeepSeek Harness Web UI 的 Windows 桌面分发
+# DSH-desk 实施计划：DeepSeek Harness Web UI 的 Windows 桌面分发
 
 > **For agentic workers:** 本计划按任务逐条执行（每阶段提交一次）。执行时使用 executing-plans 方式：批内连续完成任务、阶段边界作为检查点；任何与定案冲突的实现需求先回到用户确认。
 > 步骤使用 `- [ ]` 复选框跟踪。
 
-**Goal:** 把 DeepSeek Harness Web UI 做成 Windows x64 桌面产品——用户不装 Node、双击即用；Tauri 2 壳监督随包 sidecar（钉版 harness），WebView2 直载 `http://127.0.0.1:<port>`，原生能力经 `window.__DSH_DESKTOP__` 桥注入，浏览器中自动退化。
+**Goal:** 把 DeepSeek Harness Web UI 做成 Windows x64 桌面产品——用户不装 Node、双击即用；Tauri 2 壳监督随包 sidecar（钉版 harness），WebView2 直载 `http://127.0.0.1:<port>`，原生能力经 `window.__DSH_DESK__` 桥注入，浏览器中自动退化。
 
-**Architecture:** 壳（Rust，不含前端）→ 单实例锁 → 初始化 `~/.dsh/profiles/desktop`（自带 node+pnpm，公开 `dsh plugin` 命令面）→ 选空闲端口拉起 sidecar（`dsh --profile desktop --port N`）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 加载；崩溃退避重启 3 次，失败展示壳内错误页。sidecar = 随包 Node + pnpm standalone + 精确钉死的 `@deepseek-ai/dsh` 依赖树；桥接插件 `@JiaosSir/dsh-desktop-bridge` 是 npm 发布的外部插件（`dsh.bundle` patch + client bundle 经 `__DSH_BOOT__` 图加载），只做特性检测 + Tauri IPC 桥，零业务逻辑。
+**Architecture:** 壳（Rust，不含前端）→ 单实例锁 → 初始化 `~/.dsh/profiles/desktop`（自带 node+pnpm，公开 `dsh plugin` 命令面）→ 选空闲端口拉起 sidecar（`dsh --profile desktop --port N`）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 加载；崩溃退避重启 3 次，失败展示壳内错误页。sidecar = 随包 Node + pnpm standalone + 精确钉死的 `@deepseek-ai/dsh` 依赖树；桥接插件 `@JiaosSir/dsh-desk-bridge` 是 npm 发布的外部插件（`dsh.bundle` patch + client bundle 经 `__DSH_BOOT__` 图加载），只做特性检测 + Tauri IPC 桥，零业务逻辑。
 
-**Tech Stack:** Rust（Tauri 2 + desktop-core crate，无 tauri 依赖纯逻辑 + tokio 进程监督）、Node 22 LTS + pnpm standalone（仅 sidecar 与构建期）、TypeScript（bridge 插件，tsdown 双端构建）、NSIS（每用户）+ portable zip、GitHub Actions（Windows runner）。
+**Tech Stack:** Rust（Tauri 2 + desk-core crate，无 tauri 依赖纯逻辑 + tokio 进程监督）、Node 22 LTS + pnpm standalone（仅 sidecar 与构建期）、TypeScript（bridge 插件，tsdown 双端构建）、NSIS（每用户）+ portable zip、GitHub Actions（Windows runner）。
 
 ---
 
@@ -34,15 +34,15 @@
 
 | ID | 实现决策 | 理由 |
 |---|---|---|
-| D1 | sidecar 以 `bundle.resources` 整目录打包（`resources/sidecar/{node/,pnpm/,node_modules/}`），壳用 `std::process` 直接拉起，不用 tauri-plugin-shell 的 externalBin | externalBin 只接受单文件且强制加 target-triple 后缀；目录树 + 自管 stdout/环境更适合监督场景 |
+| D1 | sidecar 以 `bundle.resources` 整目录打包（`resources/sidecar-dist/{node/,pnpm/,node_modules/}`），壳用 `std::process` 直接拉起，不用 tauri-plugin-shell 的 externalBin | externalBin 只接受单文件且强制加 target-triple 后缀；目录树 + 自管 stdout/环境更适合监督场景 |
 | D2 | sidecar 环境强制 `DSH_TELEMETRY_DISABLED=1` | 落实"零遥测"不变式；harness 自带开关，非上游改动 |
 | D3 | sidecar 启动命令：`<sidecar>/node/node.exe <sidecar>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop --port N`，cwd = profile 目录 | 绕开 .cmd shim；lib/bin.js 是发布产物中的稳定入口 |
 | D4 | 日志落 `~/.dsh/desktop/logs/`（尊重 DSH_HOME），sidecar 与壳各一个滚动文件（1MB×2）；错误页/托盘/设置均有"打开日志目录" | 规格 §8b 已把桌面自有状态放在 `~/.dsh/desktop/`，日志同址便于发现 |
 | D5 | 等待/错误页是壳内置静态资产（`apps/desktop/dist/{index.html,error.html}` 作为 frontendDist），就绪后 `webview.navigate(url)` 切到 sidecar | 壳不含前端，但必须有无 sidecar 时的本地错误面 |
-| D6 | bridge 的 web→desktop 插件同步、重启宿主等**所有** dsh 命令由壳执行（desktop-core 模块），bridge 只调 IPC；同步差异清单也由壳读两份 profile manifest 计算 | 规格决策 5："桥接插件业务逻辑零" |
-| D7 | bridge 包名 `@JiaosSir/dsh-desktop-bridge`（规格提案；发布前以实际 scope 为准），版本与壳同号；**bridge 不打包进 sidecar**——首启由壳执行 `dsh plugin --profile desktop add @JiaosSir/dsh-desktop-bridge@<壳版本>` 钉死安装（规格决策 4/5），开发期用 env `DSH_DESKTOP_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接；发布管线先 npm publish bridge 再出安装包 | 同一原子产物单版本号（规格决策 4）；bridge 与用户插件同驻 profile、同走 npm 分发 |
+| D6 | bridge 的 web→desktop 插件同步、重启宿主等**所有** dsh 命令由壳执行（desk-core 模块），bridge 只调 IPC；同步差异清单也由壳读两份 profile manifest 计算 | 规格决策 5："桥接插件业务逻辑零" |
+| D7 | bridge 包名 `@JiaosSir/dsh-desk-bridge`（规格提案；发布前以实际 scope 为准），版本与壳同号；**bridge 不打包进 sidecar**——首启由壳执行 `dsh plugin --profile desktop add @JiaosSir/dsh-desk-bridge@<壳版本>` 钉死安装（规格决策 4/5），开发期用 env `DSH_DESK_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接；发布管线先 npm publish bridge 再出安装包 | 同一原子产物单版本号（规格决策 4）；bridge 与用户插件同驻 profile、同走 npm 分发 |
 | D8 | 首次引导在页面内做（复用 web onboarding）：API key 写 `~/.dsh/.env`（壳写文件）、工作区经原生文件夹对话框选定后写 `~/.dsh/desktop/config.json` | 规格 §8 |
-| D9 | CI 冒烟 = 壳 `DSH_DESKTOP_SMOKE=1` 自测模式：初始化 profile → 拉起 sidecar → 等就绪 → GET `/` 断言 200 与标题 → 退出 0；不开窗口，不依赖 GUI 会话 | 规格 §11.1"桌面层新增冒烟测试"的落地形态 |
+| D9 | CI 冒烟 = 壳 `DSH_DESK_SMOKE=1` 自测模式：初始化 profile → 拉起 sidecar → 等就绪 → GET `/` 断言 200 与标题 → 退出 0；不开窗口，不依赖 GUI 会话 | 规格 §11.1"桌面层新增冒烟测试"的落地形态 |
 | D10 | Node 钉 22 LTS 最新（≥22.19）；pnpm standalone 钉 10.x 最新；harness 钉 `0.1.0-rc.5`（计划时最新，实现期以组装脚本常量统一升级） | 规格"钉死版本" |
 | D11 | 全局快捷键 v1 从 `~/.dsh/desktop/config.json` 的 `hotkey` 读取（缺省 `Ctrl+Alt+D`，非法值回退缺省）；设置 UI 显示当前值，改键 UI 留 v1.5 | 规格 §7"可改"最小实现；避免 v1 引入改键 UI 面 |
 | D12 | NSIS `installMode: currentUser`（每用户免管理员）；portable zip 由脚本打包 `target/release` 的 exe + resources 目录；v1 不签名 | 规格 §9 |
@@ -50,14 +50,14 @@
 ## 2. 目标仓库布局
 
 ```
-dsh-desktop/
+DSH-desk/
 ├─ apps/desktop/                        # Tauri 2 壳
 │  ├─ package.json                      # @tauri-apps/cli 等 devDeps
 │  ├─ dist/                             # 等待页/错误页静态资产（frontendDist）
 │  │  ├─ index.html                     # "正在启动…"页
 │  │  └─ error.html                     # 错误页（重试/日志/退出）
 │  └─ src-tauri/
-│     ├─ Cargo.toml                     # tauri + desktop-core + 插件
+│     ├─ Cargo.toml                     # tauri + desk-core + 插件
 │     ├─ tauri.conf.json                # 窗口/托盘外置/资源/NSIS/WebView2
 │     ├─ build.rs
 │     ├─ capabilities/default.json      # IPC 能力（限 127.0.0.1 远程域）
@@ -66,10 +66,10 @@ dsh-desktop/
 │        ├─ main.rs                     # 组装：插件注册、窗口、状态机接线
 │        ├─ lib.rs                      # #[cfg_attr(mobile…)] run()
 │        ├─ commands.rs                 # #[tauri::command]：桥的 IPC 面
-│        ├─ bridge.rs                   # initialization_script 注入 __DSH_DESKTOP__
+│        ├─ bridge.rs                   # initialization_script 注入 __DSH_DESK__
 │        ├─ tray.rs                     # 托盘菜单
 │        └─ shortcuts.rs                # Ctrl+Alt+D 唤起/隐藏
-├─ crates/desktop-core/                 # 纯逻辑 crate（无 tauri 依赖，单测覆盖）
+├─ crates/desk-core/                 # 纯逻辑 crate（无 tauri 依赖，单测覆盖）
 │  ├─ Cargo.toml
 │  └─ src/
 │     ├─ lib.rs
@@ -79,7 +79,7 @@ dsh-desktop/
 │     ├─ supervisor.rs                  # 监督状态机（spawn/重试/崩溃重启）
 │     ├─ profile.rs                     # desktop profile 初始化（跑 dsh plugin）
 │     └─ logs.rs                        # 滚动日志写入器
-├─ packages/dsh-desktop-bridge/         # npm 发布的外部桥接插件
+├─ packages/dsh-desk-bridge/         # npm 发布的外部桥接插件
 │  ├─ package.json                      # dsh.bundle.patch + dsh.client manifest
 │  ├─ cordis.patch.yml                  # insert 行
 │  ├─ tsconfig.json / tsconfig.build.json
@@ -89,13 +89,13 @@ dsh-desktop/
 │     ├─ invariant.ts
 │     └─ client/
 │        ├─ index.ts                    # client 入口：特性检测 + Slot 注册
-│        ├─ bridge.ts                   # window.__DSH_DESKTOP__ 协议封装（无桥即退化）
+│        ├─ bridge.ts                   # window.__DSH_DESK__ 协议封装（无桥即退化）
 │        ├─ settings-panel.tsx          # 设置"桌面"区（自启/日志/重启宿主/查看最新版）
 │        ├─ notifications.ts            # 审批事件订阅 → 通知镜像
 │        └─ locales.ts                  # zh/en 文案
 ├─ scripts/
 │  ├─ assemble-sidecar.mjs              # 下载 node zip + pnpm standalone + pnpm add 钉版 dsh
-│  ├─ smoke-desktop.mjs                 # 冒烟测试驱动（DSH_DESKTOP_SMOKE=1）
+│  ├─ smoke-desktop.mjs                 # 冒烟测试驱动（DSH_DESK_SMOKE=1）
 │  └─ build-portable.mjs                # portable zip 组装
 ├─ .github/workflows/
 │  ├─ ci.yml                            # 推送到 PR：cargo test / bridge build+test / 冒烟
@@ -115,13 +115,13 @@ dsh-desktop/
 
 ## 阶段 1：仓库脚手架（Tauri 2 app + crates + bridge 包骨架 + CI）
 
-**目标**：仓库具备可构建、可测试的骨架：Tauri 2 壳显示内置等待页；desktop-core 空 crate 带 CI 绿灯；bridge 包骨架可 build 可 test；CI 覆盖 fmt/clippy/test/build。
+**目标**：仓库具备可构建、可测试的骨架：Tauri 2 壳显示内置等待页；desk-core 空 crate 带 CI 绿灯；bridge 包骨架可 build 可 test；CI 覆盖 fmt/clippy/test/build。
 
 **产出物**：
 - 根 `package.json`、`pnpm-workspace.yaml`、`.gitignore`
 - `apps/desktop/**`（Tauri 2 脚手架 + 等待/错误页静态资产 + capabilities + 图标）
-- `crates/desktop-core/**`（含一个示例纯函数测试，确立 TDD 流程）
-- `packages/dsh-desktop-bridge/**`（manifest + 空宿主插件 + 空 client bundle + 测试骨架）
+- `crates/desk-core/**`（含一个示例纯函数测试，确立 TDD 流程）
+- `packages/dsh-desk-bridge/**`（manifest + 空宿主插件 + 空 client bundle + 测试骨架）
 - `.github/workflows/ci.yml`
 
 ### 任务 1.1：仓库根与 pnpm workspace
@@ -137,12 +137,12 @@ packages:
 
 ```json
 {
-  "name": "dsh-desktop",
+  "name": "dsh-desk",
   "private": true,
   "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "bridge:build": "pnpm --filter @JiaosSir/dsh-desktop-bridge build",
-    "bridge:test": "pnpm --filter @JiaosSir/dsh-desktop-bridge test",
+    "bridge:build": "pnpm --filter @JiaosSir/dsh-desk-bridge build",
+    "bridge:test": "pnpm --filter @JiaosSir/dsh-desk-bridge test",
     "sidecar:assemble": "node scripts/assemble-sidecar.mjs",
     "desktop:dev": "pnpm --dir apps/desktop tauri dev",
     "desktop:build": "pnpm --dir apps/desktop tauri build",
@@ -157,11 +157,11 @@ packages:
 
 - [ ] **Step 4** 验证：`pnpm install` 成功（当前无依赖，空安装）；`git status` 干净可提交。
 
-### 任务 1.2：desktop-core crate（TDD 起点）
+### 任务 1.2：desk-core crate（TDD 起点）
 
-- [ ] **Step 1** 创建 `crates/desktop-core/Cargo.toml`（依赖：`tokio`（rt-multi-thread、process、io-util、time）、`regex`、`serde`+`serde_json`、`tracing`、`tracing-appender`+`tracing-subscriber`、`dirs`；dev：`tempfile`）。lib name = `desktop_core`。
+- [ ] **Step 1** 创建 `crates/desk-core/Cargo.toml`（依赖：`tokio`（rt-multi-thread、process、io-util、time）、`regex`、`serde`+`serde_json`、`tracing`、`tracing-appender`+`tracing-subscriber`、`dirs`；dev：`tempfile`）。lib name = `desk_core`。
 
-- [ ] **Step 2** 写失败测试 `crates/desktop-core/src/ports.rs` 的测试（先建 `src/lib.rs` 声明模块）：
+- [ ] **Step 2** 写失败测试 `crates/desk-core/src/ports.rs` 的测试（先建 `src/lib.rs` 声明模块）：
 
 ```rust
 // ports.rs
@@ -186,24 +186,24 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 }
 ```
 
-- [ ] **Step 3** 运行 `cargo test -p desktop-core` → 失败（模块/函数不存在）→ 实现 → 通过。
+- [ ] **Step 3** 运行 `cargo test -p desk-core` → 失败（模块/函数不存在）→ 实现 → 通过。
 
-- [ ] **Step 4** 提交：`git add -A && git commit -m "chore: repo root, workspace and desktop-core skeleton"`。
+- [ ] **Step 4** 提交：`git add -A && git commit -m "chore: repo root, workspace and desk-core skeleton"`。
 
 ### 任务 1.3：Tauri 2 壳脚手架
 
 - [ ] **Step 1** 在 `apps/desktop/` 手动创建（不用 create-tauri-app 交互式，保证布局可控）：`package.json`（devDeps：`@tauri-apps/cli@^2`）。
 
-- [ ] **Step 2** 创建 `apps/desktop/src-tauri/Cargo.toml`：`tauri = { version = "2", features = ["tray-icon"] }`、`tauri-build = "2"`、`desktop-core = { path = "../../crates/desktop-core" }`、插件按阶段 2/4 需要加入（阶段 1 先只加 `tauri-plugin-opener`、`tauri-plugin-dialog`，其余在对应阶段再加）；`[build-dependencies] tauri-build = { version = "2", features = [] }`。
+- [ ] **Step 2** 创建 `apps/desktop/src-tauri/Cargo.toml`：`tauri = { version = "2", features = ["tray-icon"] }`、`tauri-build = "2"`、`desk-core = { path = "../../crates/desk-core" }`、插件按阶段 2/4 需要加入（阶段 1 先只加 `tauri-plugin-opener`、`tauri-plugin-dialog`，其余在对应阶段再加）；`[build-dependencies] tauri-build = { version = "2", features = [] }`。
 
 - [ ] **Step 3** 创建 `apps/desktop/src-tauri/tauri.conf.json`（阶段 1 版；bundle 细节阶段 5 补全）：
 
 ```json
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "dsh-desktop",
+  "productName": "DSH-desk",
   "version": "0.1.0",
-  "identifier": "com.dsh.desktop",
+  "identifier": "com.dsh.desk",
   "build": {
     "frontendDist": "../dist"
   },
@@ -212,7 +212,7 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
     "windows": [
       {
         "label": "main",
-        "title": "DeepSeek Harness",
+        "title": "DSH-desk",
         "width": 1280,
         "height": 800,
         "center": true
@@ -233,7 +233,7 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 }
 ```
 
-- [ ] **Step 4** 创建 `apps/desktop/dist/index.html`（等待页）与 `error.html`（错误页占位，阶段 2 接通）：均为 zh-CN、暗色、带 `<script>` 检测 `window.__DSH_DESKTOP__` 并在存在时提供"退出/打开日志"按钮（调用 `__DSH_DESKTOP__.quit()/openLogs()`，不存在时按钮隐藏——纯浏览器打开也安全）。
+- [ ] **Step 4** 创建 `apps/desktop/dist/index.html`（等待页）与 `error.html`（错误页占位，阶段 2 接通）：均为 zh-CN、暗色、带 `<script>` 检测 `window.__DSH_DESK__` 并在存在时提供"退出/打开日志"按钮（调用 `__DSH_DESK__.quit()/openLogs()`，不存在时按钮隐藏——纯浏览器打开也安全）。
 
 - [ ] **Step 5** 创建 `src-tauri/src/main.rs`（阶段 1 最小版：`tauri::Builder::default().run(...)`，窗口加载 `index.html`）+ `build.rs`（`tauri_build::build()`）+ `capabilities/default.json`：
 
@@ -241,7 +241,7 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "dsh-desktop 主窗口能力（远程域仅本机 sidecar）",
+  "description": "DSH-desk 主窗口能力（远程域仅本机 sidecar）",
   "windows": ["main"],
   "remote": { "urls": ["http://127.0.0.1:*"] },
   "permissions": ["core:default", "opener:default", "dialog:default"]
@@ -250,15 +250,15 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 
 - [ ] **Step 6** 生成图标（占位 PNG/ICO 放 `icons/`，`tauri icon` 命令从源图生成全套）。
 
-- [ ] **Step 7** 验证：`pnpm --dir apps/desktop tauri dev` 打开窗口显示等待页（本机验证一次即可，不进入 CI）；`cargo check -p dsh-desktop` 无错。**注意**：阶段 1 的 dev 运行不加载 sidecar，属预期。
+- [ ] **Step 7** 验证：`pnpm --dir apps/desktop tauri dev` 打开窗口显示等待页（本机验证一次即可，不进入 CI）；`cargo check -p dsh-desk` 无错。**注意**：阶段 1 的 dev 运行不加载 sidecar，属预期。
 
 ### 任务 1.4：bridge 包骨架
 
-- [ ] **Step 1** 创建 `packages/dsh-desktop-bridge/package.json`，manifest 参照 F7 事实：
+- [ ] **Step 1** 创建 `packages/dsh-desk-bridge/package.json`，manifest 参照 F7 事实：
 
 ```json
 {
-  "name": "@JiaosSir/dsh-desktop-bridge",
+  "name": "@JiaosSir/dsh-desk-bridge",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
@@ -301,12 +301,12 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 - [ ] **Step 2** 创建 `cordis.patch.yml`（与 dsh-ssh 同构）：
 
 ```yaml
-# dsh-desktop-bridge bundle patch: 把桥接插件行插进 desktop profile 名单。
+# dsh-desk-bridge bundle patch: 把桥接插件行插进 desktop profile 名单。
 # 宿主半部（exports "."）在宿主进程跑（审批旁听 + /api/desktop 路由），
 # 浏览器半部（exports "./client"）由 dsh.client 声明加载进 Web GUI。
 - insert:
-    - id: desktop-bridge
-      name: '@JiaosSir/dsh-desktop-bridge'
+    - id: desk-bridge
+      name: '@JiaosSir/dsh-desk-bridge'
 ```
 
 - [ ] **Step 3** 创建最小宿主半部 `src/index.ts`（阶段 1 只注册存活；阶段 4 加审批旁听与路由）：
@@ -314,7 +314,7 @@ fn pick_free_port_returns_ephemeral_and_rebindable() {
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
 
-export const name = 'desktop-bridge'
+export const name = 'desk-bridge'
 
 export function apply(_ctx: Context): void {
   // 阶段 4：旁听 approval/request 事件 + 注册 /api/desktop 路由。
@@ -325,7 +325,7 @@ export function apply(_ctx: Context): void {
 
 ```ts
 // bridge.ts —— 唯一的特性检测 + IPC 协议封装（浏览器无桥自动退化）
-export interface DesktopBridge {
+export interface DeskBridge {
   readonly available: boolean
   pickFolder(): Promise<string | null>
   openLogs(): Promise<void>
@@ -338,11 +338,11 @@ export interface DesktopBridge {
 }
 
 declare global {
-  interface Window { __DSH_DESKTOP__?: DesktopBridge }
+  interface Window { __DSH_DESK__?: DeskBridge }
 }
 
-export function detectBridge(): DesktopBridge | null {
-  return window.__DSH_DESKTOP__ ?? null
+export function detectBridge(): DeskBridge | null {
+  return window.__DSH_DESK__ ?? null
 }
 ```
 
@@ -353,9 +353,9 @@ import { detectBridge } from './bridge'
 const bridge = detectBridge()
 if (bridge !== null) {
   // 阶段 4：注册设置区、通知镜像订阅
-  console.info('[dsh-desktop-bridge] desktop bridge present')
+  console.info('[dsh-desk-bridge] desktop bridge present')
 } else {
-  console.info('[dsh-desktop-bridge] running in plain browser — degraded, no-op')
+  console.info('[dsh-desk-bridge] running in plain browser — degraded, no-op')
 }
 ```
 
@@ -369,12 +369,12 @@ export default defineConfig({
   format: ['esm', 'iife'],
   dts: true,
   // client IIFE 输出必须形如:
-  //   window.__ModuleLoader__.load({ id: "@JiaosSir/dsh-desktop-bridge", factory: require => {...} })
+  //   window.__ModuleLoader__.load({ id: "@JiaosSir/dsh-desk-bridge", factory: require => {...} })
   // 具体 banner/footer 以实现期对 dsh-web-ui 构建产物（lib/client.js 首行）的核对为准
 })
 ```
 
-- [ ] **Step 6** 写退化行为测试 `tests/bridge.client.spec.ts`（vitest + jsdom）：无 `window.__DSH_DESKTOP__` 时 `detectBridge()` 返回 `null` 且 client 入口不抛错；有 mock 桥时返回同一对象。运行 `pnpm --filter @JiaosSir/dsh-desktop-bridge test` → 通过。
+- [ ] **Step 6** 写退化行为测试 `tests/bridge.client.spec.ts`（vitest + jsdom）：无 `window.__DSH_DESK__` 时 `detectBridge()` 返回 `null` 且 client 入口不抛错；有 mock 桥时返回同一对象。运行 `pnpm --filter @JiaosSir/dsh-desk-bridge test` → 通过。
 
 - [ ] **Step 7** 提交：`git commit -m "chore: tauri shell scaffold and bridge package skeleton"`。
 
@@ -389,16 +389,16 @@ on:
   pull_request:
 
 jobs:
-  desktop-core:
+  desk-core:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: "crates/desktop-core -> target" }
-      - run: cargo fmt -p desktop-core --check
-      - run: cargo clippy -p desktop-core -- -D warnings
-      - run: cargo test -p desktop-core
+        with: { workspaces: "crates/desk-core -> target" }
+      - run: cargo fmt -p desk-core --check
+      - run: cargo clippy -p desk-core -- -D warnings
+      - run: cargo test -p desk-core
 
   bridge:
     runs-on: ubuntu-latest
@@ -433,7 +433,7 @@ jobs:
 
 | # | 验收 | 验证方式 |
 |---|---|---|
-| 1.1 | `cargo test -p desktop-core` 通过且包含 `pick_free_port` 测试 | 命令输出 |
+| 1.1 | `cargo test -p desk-core` 通过且包含 `pick_free_port` 测试 | 命令输出 |
 | 1.2 | `pnpm bridge:test`、`pnpm bridge:build` 通过；client 产物首行是 `window.__ModuleLoader__.load(` 包装 | 命令 + 读 `lib/client.js` 首行 |
 | 1.3 | `pnpm --dir apps/desktop tauri dev` 打开窗口显示 zh-CN 等待页，无控制台报错 | 本机人工一次 |
 | 1.4 | `tauri build --no-bundle` 成功（阶段 1 不产安装包） | 命令输出 |
@@ -452,11 +452,11 @@ jobs:
 
 ## 阶段 2：sidecar 组装脚本与监督（端口协商/重试/日志）
 
-**目标**：`scripts/assemble-sidecar.mjs` 可复现地产出 `apps/desktop/src-tauri/sidecar-dist/`（node.exe + pnpm standalone + 钉版 `@deepseek-ai/dsh` 依赖树）；desktop-core 具备端口选择、就绪行解析、监督状态机（含重试与崩溃重启）与滚动日志；壳接通等待页/错误页/托盘"重启宿主/退出"。
+**目标**：`scripts/assemble-sidecar.mjs` 可复现地产出 `apps/desktop/src-tauri/sidecar-dist/`（node.exe + pnpm standalone + 钉版 `@deepseek-ai/dsh` 依赖树）；desk-core 具备端口选择、就绪行解析、监督状态机（含重试与崩溃重启）与滚动日志；壳接通等待页/错误页/托盘"重启宿主/退出"。
 
 **产出物**：
 - `scripts/assemble-sidecar.mjs`
-- `crates/desktop-core/src/{paths,ports,ready,supervisor,logs}.rs` + 单元测试
+- `crates/desk-core/src/{paths,ports,ready,supervisor,logs}.rs` + 单元测试
 - `apps/desktop/src-tauri/src/{commands,tray}.rs`（部分）、等待/错误页与监督接线
 - CI 冒烟任务雏形（阶段 3 完成）
 
@@ -492,7 +492,7 @@ const SIDECAR_DIR = join(root, 'apps/desktop/src-tauri/sidecar-dist')
 
 ### 任务 2.2：就绪行解析与监督状态机（TDD）
 
-- [ ] **Step 1** 失败测试 `crates/desktop-core/src/ready.rs`：
+- [ ] **Step 1** 失败测试 `crates/desk-core/src/ready.rs`：
 
 ```rust
 /// 从 sidecar 输出流里抓就绪 URL 行（F1 的官方正则同构）。
@@ -524,9 +524,9 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2** 运行 `cargo test -p desktop-core` → 失败 → 实现 → 通过。
+- [ ] **Step 2** 运行 `cargo test -p desk-core` → 失败 → 实现 → 通过。
 
-- [ ] **Step 3** 失败测试 `crates/desktop-core/src/supervisor.rs`（监督状态机，tokio 单测用真实 `node -e` 假 sidecar，不依赖 harness）：
+- [ ] **Step 3** 失败测试 `crates/desk-core/src/supervisor.rs`（监督状态机，tokio 单测用真实 `node -e` 假 sidecar，不依赖 harness）：
 
 ```rust
 pub enum SupervisorEvent { Ready { url: String }, Exited { code: Option<i32>, attempt: u32 }, Failed { reason: String } }
@@ -556,11 +556,11 @@ impl Supervisor {
 
 - [ ] **Step 4** 实现监督：tokio `Command`，stdout/stderr 经 `BufReader` 行读入共享缓冲（同时喂 `logs::append`），`tokio::select!` 于就绪行 / child 退出 / 超时；崩溃后按 backoff 重启（重试上限 3）；输出缓冲累计供错误页显示尾部。
 
-- [ ] **Step 5** 运行 `cargo test -p desktop-core` 全绿。
+- [ ] **Step 5** 运行 `cargo test -p desk-core` 全绿。
 
 ### 任务 2.3：路径、日志与 profile 目录定位
 
-- [ ] **Step 1** TDD `crates/desktop-core/src/paths.rs`：
+- [ ] **Step 1** TDD `crates/desk-core/src/paths.rs`：
 
 ```rust
 /// DSH_HOME 优先（F9）；空/空白视为未设置；否则 ~/.dsh。
@@ -573,12 +573,12 @@ pub fn dsh_home() -> PathBuf {
 pub fn profile_dir() -> PathBuf { dsh_home().join("profiles").join("desktop") }
 pub fn desktop_config_dir() -> PathBuf { dsh_home().join("desktop") }
 pub fn logs_dir() -> PathBuf { desktop_config_dir().join("logs") }
-pub fn sidecar_root() -> PathBuf { /* 运行时：exe 旁 resources/sidecar（Tauri resource_dir）；测试：SIDECAR_ROOT 环境覆盖 */ }
+pub fn sidecar_root() -> PathBuf { /* 运行时：exe 旁 resources/sidecar-dist（Tauri resource_dir）；测试：SIDECAR_ROOT 环境覆盖 */ }
 ```
 
 测试：`DSH_HOME` 设置时优先；空白回退 home；子路径拼接正确。
 
-- [ ] **Step 2** TDD `crates/desktop-core/src/logs.rs`：滚动 writer（同文件 1MB 后切 `.1`，仅保留 2 份），`append(kind: LogKind, line: &str)` 带时间戳；测试：写超过阈值触发轮转、旧内容在 `.1`。
+- [ ] **Step 2** TDD `crates/desk-core/src/logs.rs`：滚动 writer（同文件 1MB 后切 `.1`，仅保留 2 份），`append(kind: LogKind, line: &str)` 带时间戳；测试：写超过阈值触发轮转、旧内容在 `.1`。
 
 - [ ] **Step 3** 提交：`git commit -m "feat(core): supervisor state machine, ready-line parsing, paths and rolling logs"`。
 
@@ -595,7 +595,7 @@ pub fn sidecar_root() -> PathBuf { /* 运行时：exe 旁 resources/sidecar（Ta
 #[tauri::command] fn desktop_state(state: State<AppState>) -> DesktopStatus     // 错误页显示用
 ```
 
-- [ ] **Step 3** `bridge.rs`：`initialization_script` 注入 `window.__DSH_DESKTOP__`（用 `window.__TAURI__.core.invoke` 包装上述命令；`withGlobalTauri: true`），协议与阶段 1 任务 1.4 Step 4 的 `DesktopBridge` 接口逐字段对齐。
+- [ ] **Step 3** `bridge.rs`：`initialization_script` 注入 `window.__DSH_DESK__`（用 `window.__TAURI__.core.invoke` 包装上述命令；`withGlobalTauri: true`），协议与阶段 1 任务 1.4 Step 4 的 `DeskBridge` 接口逐字段对齐。
 
 - [ ] **Step 4** `tray.rs`：TrayIconBuilder + 菜单（显示/隐藏、重启宿主、打开日志目录、退出）；窗口关闭 = `app.exit(0)`（先停 sidecar；规格 §7 注释：托盘驻留留 v1.5）。
 
@@ -605,7 +605,7 @@ pub fn sidecar_root() -> PathBuf { /* 运行时：exe 旁 resources/sidecar（Ta
 
 | # | 验收 | 验证方式 |
 |---|---|---|
-| 2.1 | `cargo test -p desktop-core` 全绿（就绪解析 3 例 + 监督 5 例 + 路径 + 日志轮转） | 命令输出 |
+| 2.1 | `cargo test -p desk-core` 全绿（就绪解析 3 例 + 监督 5 例 + 路径 + 日志轮转） | 命令输出 |
 | 2.2 | `node scripts/assemble-sidecar.mjs` 幂等；二次运行无网络下载 | 命令输出 |
 | 2.3 | `sidecar-dist/VERSION.json` 三版本与常量一致；`node_modules/@deepseek-ai/dsh/package.json` version = 钉版 | 读文件 |
 | 2.4 | 真实启动：等待页 → Web UI；就绪 URL 端口与壳所选端口一致（日志核对） | 手工 |
@@ -619,7 +619,7 @@ pub fn sidecar_root() -> PathBuf { /* 运行时：exe 旁 resources/sidecar（Ta
 | nodejs.org 下载在 CI 不稳定 | 组装脚本用 `actions/cache` 键含 NODE_VERSION；本地可断点续传（脚本用流式下载 + 临时文件原子改名） |
 | pnpm standalone 从 registry 提取路径随版本变化 | 脚本按 tarball 内 `package/dist/pnpm.cjs` 递归查找，找不到即报错（fail-loud） |
 | `dsh plugin` 在 Windows `shell:true` 下的 pnpm.cmd 解析差异 | 已按 F5 前置 PATH 注入 + CRLF shim；阶段 3 验收专门覆盖 |
-| 监督状态机与 Tauri 事件循环的线程模型耦合 | desktop-core 不依赖 tauri（纯 tokio），壳侧用 channel 桥接，单测覆盖状态机本体 |
+| 监督状态机与 Tauri 事件循环的线程模型耦合 | desk-core 不依赖 tauri（纯 tokio），壳侧用 channel 桥接，单测覆盖状态机本体 |
 
 ---
 
@@ -628,22 +628,22 @@ pub fn sidecar_root() -> PathBuf { /* 运行时：exe 旁 resources/sidecar（Ta
 **目标**：首启全自动完成 `~/.dsh/profiles/desktop` 初始化（web-app + bridge 两插件，幂等）；页面内首跑引导（API key → 工作区 → 聊天界面）落地；web→desktop 插件同步设置项；`~/.dsh/desktop/config.json` 读写；单实例锁与窗口状态记忆接入。
 
 **产出物**：
-- `crates/desktop-core/src/profile.rs`（初始化 + 同步清单计算）
+- `crates/desk-core/src/profile.rs`（初始化 + 同步清单计算）
 - `apps/desktop/src-tauri/src/{single_instance,window_state,commands}.rs` 扩容
-- `packages/dsh-desktop-bridge` 首个可用功能面（工作区选择桥 + 设置区）——UI 部分与阶段 4 交接
+- `packages/dsh-desk-bridge` 首个可用功能面（工作区选择桥 + 设置区）——UI 部分与阶段 4 交接
 - `scripts/smoke-desktop.mjs` + CI 冒烟 job
 
 ### 任务 3.1：profile 初始化（TDD）
 
-- [ ] **Step 1** 失败测试 `crates/desktop-core/src/profile.rs`（用临时 DSH_HOME + 真实 node/pnpm shim 桩，不触网）：
+- [ ] **Step 1** 失败测试 `crates/desk-core/src/profile.rs`（用临时 DSH_HOME + 真实 node/pnpm shim 桩，不触网）：
 
 ```rust
 pub struct ProfileInitOutcome { pub ran_adds: Vec<String> }
 /// 幂等初始化：profile 目录无 package.json 时先 add web-app；
 /// 然后检查 dependencies 是否含 bridge（含 @scope 精确匹配），缺则 add。
 /// 两个 add 都通过 bundled pnpm + PATH 注入执行（F4/F5 语义复刻）。
-/// bridge 安装 spec：env DSH_DESKTOP_BRIDGE_SPEC 优先（开发期 link: 覆盖，D7），
-/// 缺省 `@JiaosSir/dsh-desktop-bridge@<compile-time 壳版本>`。
+/// bridge 安装 spec：env DSH_DESK_BRIDGE_SPEC 优先（开发期 link: 覆盖，D7），
+/// 缺省 `@JiaosSir/dsh-desk-bridge@<compile-time 壳版本>`。
 pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcome, String>;
 
 /// web→desktop 单向同步清单：读两份 profile 的 package.json dependencies，
@@ -655,7 +655,7 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 
 - [ ] **Step 2** 实现（关键点：`dsh plugin` 的真实参数是 `plugin --profile desktop add <pkg>`，程序 = sidecar node.exe，脚本 = `node_modules/@deepseek-ai/dsh/lib/bin.js`；子进程 env 注入 `sidecar/pnpm` 到 PATH 头部 + `DSH_TELEMETRY_DISABLED=1`；输出逐行进日志；非零退出返回带尾部输出的错误）。
 
-- [ ] **Step 3** 真实冒烟前置：临时 DSH_HOME 下跑 `ensure_profile_init` 一次（触网），断言 profile 的 `package.json` 里 `dsh.profile.bundles` 最终 = `['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','@JiaosSir/dsh-desktop-bridge']`（F4 的 reconcile 语义）。此条作为**本阶段验收**，不写进常跑单测（触网）。
+- [ ] **Step 3** 真实冒烟前置：临时 DSH_HOME 下跑 `ensure_profile_init` 一次（触网），断言 profile 的 `package.json` 里 `dsh.profile.bundles` 最终 = `['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','@JiaosSir/dsh-desk-bridge']`（F4 的 reconcile 语义）。此条作为**本阶段验收**，不写进常跑单测（触网）。
 
 ### 任务 3.2：首启编排与 config.json
 
@@ -682,9 +682,9 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 
 ### 任务 3.3：冒烟测试与 CI
 
-- [ ] **Step 1** 壳侧 smoke 模式：env `DSH_DESKTOP_SMOKE=1` 时 main() 走无窗口路径——初始化 → 拉起 sidecar → 等就绪 → 用 ureq 请求 `GET {url}/` → 断言 200 且 body 含 `<title>DeepSeek Harness</title>`（已核实：`apps/web/index.html:8`）→ 停 sidecar → `println!("SMOKE_OK")` → exit 0；任何失败 `SMOKE_FAILED: {reason}` → exit 1。
+- [ ] **Step 1** 壳侧 smoke 模式：env `DSH_DESK_SMOKE=1` 时 main() 走无窗口路径——初始化 → 拉起 sidecar → 等就绪 → 用 ureq 请求 `GET {url}/` → 断言 200 且 body 含 `<title>DeepSeek Harness</title>`（已核实：`apps/web/index.html:8`）→ 停 sidecar → `println!("SMOKE_OK")` → exit 0；任何失败 `SMOKE_FAILED: {reason}` → exit 1。
 
-- [ ] **Step 2** `scripts/smoke-desktop.mjs`：spawn 构建产物 exe，env `{ DSH_DESKTOP_SMOKE: '1', DSH_HOME: <mkdtemp> }`，超时 5 分钟，断言 exit 0 且输出含 `SMOKE_OK`；失败时打印 sidecar 日志尾部。
+- [ ] **Step 2** `scripts/smoke-desktop.mjs`：spawn 构建产物 exe，env `{ DSH_DESK_SMOKE: '1', DSH_HOME: <mkdtemp> }`，超时 5 分钟，断言 exit 0 且输出含 `SMOKE_OK`；失败时打印 sidecar 日志尾部。
 
 - [ ] **Step 3** CI 增加 smoke job（`shell-check` 替换为：assemble-sidecar（缓存）→ `tauri build --no-bundle` → `node scripts/smoke-desktop.mjs`）。
 
@@ -692,7 +692,7 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 
 | # | 验收 | 验证方式 |
 |---|---|---|
-| 3.1 | profile 单测全绿（幂等/补缺/差集） | `cargo test -p desktop-core` |
+| 3.1 | profile 单测全绿（幂等/补缺/差集） | `cargo test -p desk-core` |
 | 3.2 | 真实初始化（触网一次）后 bundles = base+web-app+bridge 三层，profile 目录含 pnpm-workspace.yaml | 读 `~/.dsh/profiles/desktop/package.json`（测试 DSH_HOME） |
 | 3.3 | 全新 DSH_HOME 双击首启：初始化 → Web UI 出现；二次启动秒开且复用 profile | 手工 |
 | 3.4 | 已装 dsh 用户的 `~/.dsh/profiles/web` 被检测到且设置里出现导入清单（阶段 4 UI，本阶段以 `compute_sync_diff` 单测 + 手工 API 检查替代） | 单测 + 手工 |
@@ -711,16 +711,16 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 
 ## 阶段 4：桥接插件（原生能力 + 特性检测退化）
 
-**目标**：`@JiaosSir/dsh-desktop-bridge` 成为完整外部插件：宿主半部旁听审批事件并推送 SSE；client 半部在 Web UI 内提供"桌面"设置区（开机自启、快捷键显示、打开日志、重启宿主、查看最新版）、工作区路径选择桥、通知镜像；无 `window.__DSH_DESKTOP__` 时全量退化（等价纯浏览器行为）。开发期以 `link:` 装入 desktop profile。
+**目标**：`@JiaosSir/dsh-desk-bridge` 成为完整外部插件：宿主半部旁听审批事件并推送 SSE；client 半部在 Web UI 内提供"桌面"设置区（开机自启、快捷键显示、打开日志、重启宿主、查看最新版）、工作区路径选择桥、通知镜像；无 `window.__DSH_DESK__` 时全量退化（等价纯浏览器行为）。开发期以 `link:` 装入 desktop profile。
 
 **产出物**：
-- `packages/dsh-desktop-bridge/`（宿主半部：审批旁听 + `/api/desktop/*` 路由；client 半部：Slot 设置区 + 通知订阅 + path-picker 桥）
+- `packages/dsh-desk-bridge/`（宿主半部：审批旁听 + `/api/desktop/*` 路由；client 半部：Slot 设置区 + 通知订阅 + path-picker 桥）
 - 壳侧配套命令（autostart/notify/restart/releases 等）
 - 通知权限与全局快捷键（Ctrl+Alt+D）接线
 
 ### 任务 4.1：前期 spike（实现依据，产出记入代码注释）
 
-- [ ] **Step 1** 从 `~/.dsh/profiles/web/node_modules/@linxin666/dsh-ssh`（含 `src/`）研读并记录：宿主半部注册 webserver 路由的确切 API（`@deepseek-ai/dsh-host-webserver` 导出）与设置区 Slot 注册 API（`@deepseek-ai/dsh-settings` 的 `installSettingsSection` 用法）；把结论写进 `packages/dsh-desktop-bridge/docs/spike-notes.md`。
+- [ ] **Step 1** 从 `~/.dsh/profiles/web/node_modules/@linxin666/dsh-ssh`（含 `src/`）研读并记录：宿主半部注册 webserver 路由的确切 API（`@deepseek-ai/dsh-host-webserver` 导出）与设置区 Slot 注册 API（`@deepseek-ai/dsh-settings` 的 `installSettingsSection` 用法）；把结论写进 `packages/dsh-desk-bridge/docs/spike-notes.md`。
 
 - [ ] **Step 2** 用 `dsh-ssh` 同款 devDeps 把 bridge 的宿主半部改造成真实路由注册（先注册一个 `GET /api/desktop/health` 返回 `{ ok: true }`，client 半部 fetch 它在面板显示——作为端到端最小闭环）。
 
@@ -731,7 +731,7 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
 
-export const name = 'desktop-bridge'
+export const name = 'desk-bridge'
 
 export function apply(ctx: Context): void {
   const subscribers = new Set<(evt: DesktopEvent) => void>()
@@ -769,7 +769,7 @@ export function apply(ctx: Context): void {
 
 - [ ] **Step 1** `shortcuts.rs`：`tauri-plugin-global-shortcut` 注册 `Ctrl+Alt+D`（读 config.json 的 `hotkey`，非法回退缺省）→ toggle 窗口可见性。
 
-- [ ] **Step 2** `commands.rs` 扩容：`desktop_set_autostart/get_autostart`（autostart 插件）、`desktop_notify`（notification 插件）、`desktop_open_releases`（opener 开 `https://github.com/<owner>/dsh-desktop/releases`，owner 实现期定）、`desktop_sync_add`、`desktop_sync_list`、`desktop_restart_host`。
+- [ ] **Step 2** `commands.rs` 扩容：`desktop_set_autostart/get_autostart`（autostart 插件）、`desktop_notify`（notification 插件）、`desktop_open_releases`（opener 开 `https://github.com/<owner>/DSH-desk/releases`，owner 实现期定）、`desktop_sync_add`、`desktop_sync_list`、`desktop_restart_host`。
 
 - [ ] **Step 3** WebView 硬化：`on_navigation` 拒绝非 `http://127.0.0.1:<当前port>` 的导航并移交 opener（外链走系统浏览器）；release 构建禁 devtools（`devtools: false` 生产配置）。
 
@@ -812,9 +812,9 @@ export function apply(ctx: Context): void {
 
 ### 任务 5.1：打包产物
 
-- [ ] **Step 1** `tauri.conf.json` 补全 bundle 段（D12）：NSIS `installMode: currentUser`、`displayLanguageSelector: false`、安装目录缺省 `%LOCALAPPDATA%\Programs\dsh-desktop`；`webviewInstallMode: downloadBootstrapper`（WebView2 缺失时自动引导安装，规格 §8.2）。
+- [ ] **Step 1** `tauri.conf.json` 补全 bundle 段（D12）：NSIS `installMode: currentUser`、`displayLanguageSelector: false`、安装目录缺省 `%LOCALAPPDATA%\Programs\DSH-desk`；`webviewInstallMode: downloadBootstrapper`（WebView2 缺失时自动引导安装，规格 §8.2）。
 
-- [ ] **Step 2** `scripts/build-portable.mjs`：从 `target/release/` 收集 `dsh-desktop.exe` + `resources/` 目录 → 打 zip（根目录名 `dsh-desktop-portable-<version>-x64`）；校验 zip 内含 exe 与 `resources/sidecar/node/node.exe`。
+- [ ] **Step 2** `scripts/build-portable.mjs`：从 `target/release/` 收集 `dsh-desk.exe` + `resources/` 目录 → 打 zip（根目录名 `DSH-desk-portable-<version>-x64`）；校验 zip 内含 exe 与 `resources/sidecar-dist/node/node.exe`。
 
 - [ ] **Step 3** 验证：全新 Windows 环境模拟（本机 + 干净 VM 一次）：安装 → 首启 → 升级（覆盖安装新版本）→ `~/.dsh` 数据原样 → 卸载。
 
@@ -838,7 +838,7 @@ jobs:
         with: { node-version: 22, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install --frozen-lockfile
       - run: pnpm bridge:test
-      - run: pnpm --filter @JiaosSir/dsh-desktop-bridge publish --access public --no-git-checks
+      - run: pnpm --filter @JiaosSir/dsh-desk-bridge publish --access public --no-git-checks
         env: { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }
 
   build-release:
@@ -953,4 +953,4 @@ jobs:
 
 ## 执行方式（用户确认后）
 
-按上述 6 个阶段逐阶段实现，每阶段完成即 `git commit`。阶段内任务顺序执行、测试先行；任何与规格冲突的实现需求先回用户确认。验证组合：desktop-core/bridge 自动化测试 + 本机 `pnpm dsh web`（deepseek-harness 真实 GUI 行为参照）+ 壳手工冒烟（等待页→Web UI→托盘→快捷键）+ CI 全绿。
+按上述 6 个阶段逐阶段实现，每阶段完成即 `git commit`。阶段内任务顺序执行、测试先行；任何与规格冲突的实现需求先回用户确认。验证组合：desk-core/bridge 自动化测试 + 本机 `pnpm dsh web`（deepseek-harness 真实 GUI 行为参照）+ 壳手工冒烟（等待页→Web UI→托盘→快捷键）+ CI 全绿。
