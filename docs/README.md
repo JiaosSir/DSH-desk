@@ -89,18 +89,18 @@ $env:Path = "$side\pnpm;" + $env:Path
 ## 启动（开发）
 
 ```powershell
-# 方式 A：tauri dev（有 watcher；sidecar 经 SIDECAR_ROOT 指定）
-$env:SIDECAR_ROOT = "D:\project\open-source\DSH-desk\apps\desktop\src-tauri\sidecar-dist"
+# 方式 A：tauri dev（有 watcher）
 pnpm desktop:dev
 
 # 方式 B：直接跑构建产物（更快，无 watcher）
-$env:SIDECAR_ROOT = "D:\project\open-source\DSH-desk\apps\desktop\src-tauri\sidecar-dist"
 D:\project\open-source\DSH-desk\target\debug\dsh-desk.exe
 ```
 
-启动序列：单实例锁 → 选空闲端口 → 拉起 sidecar（`dsh --profile desktop --port N`，环境注入 `DSH_TELEMETRY_DISABLED=1` 与自带 pnpm 的 PATH）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 自动导航。崩溃按 1s/2s/4s 退避重启（3 次上限），耗尽后展示错误页（重试 / 打开日志目录 / 退出）。托盘菜单：显示/隐藏、重启宿主、打开日志目录、退出。
+开发构建会自动用源码目录 `apps/desktop/src-tauri/sidecar-dist` 作为 sidecar（无需再设 `SIDECAR_ROOT`）；仍可用 `$env:SIDECAR_ROOT = "..."` 覆盖为任意目录（冒烟/调试用）。
 
-`SIDECAR_ROOT` 缺省取安装包资源目录（`resources/sidecar-dist`）；生产包无需设置。
+启动序列：解析 sidecar → 初始化 desktop profile（幂等：web-app 钉 sidecar 同版本、bridge 缺则补）→ 选空闲端口 → 拉起 sidecar（`dsh --profile desktop --port N --no-open`，环境注入 `DSH_TELEMETRY_DISABLED=1` 与自带 pnpm 的 PATH）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 自动导航。崩溃按 1s/2s/4s 退避重启（3 次上限），耗尽后展示错误页（重试 / 打开日志目录 / 退出）。托盘菜单：显示/隐藏、重启宿主、打开日志目录、退出。
+
+生产包用打包的资源目录（`resources/sidecar-dist`），无需设置 `SIDECAR_ROOT`。
 
 ## 测试
 

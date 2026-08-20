@@ -20,12 +20,21 @@ import { join } from 'node:path'
 import {
   assemble,
   buildPnpmShim,
+  buildWorkspaceYaml,
   DSH_VERSION,
   isCurrent,
   NODE_VERSION,
   PNPM_VERSION,
   validateVersions,
 } from './assemble-sidecar.mjs'
+
+test('workspace yaml 要求 hoisted 与 allowBuilds 白名单', () => {
+  const yaml = buildWorkspaceYaml()
+  assert.ok(yaml.includes('nodeLinker: hoisted'), '必须 hoisted（Tauri 打包跳过 symlink）')
+  assert.ok(yaml.includes("'@deepseek-ai/dsh-subprocess-local': true"))
+  assert.ok(yaml.includes('koffi: true'))
+  assert.ok(yaml.includes('node-pty: true'))
+})
 
 test('pnpm.cmd shim 内容精确且为 CRLF', () => {
   const shim = buildPnpmShim()

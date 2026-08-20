@@ -2,6 +2,8 @@
 //! initialization, and rolling logs. Pure Rust with no Tauri dependency so
 //! every behavior is unit-testable without a windowing environment.
 
+pub mod config;
+pub mod credentials;
 pub mod logs;
 pub mod paths;
 pub mod ports;

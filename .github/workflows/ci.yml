@@ -44,5 +44,6 @@ jobs:
           node-version: 22
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
-      # Phase 2 replaces this with: sidecar assembly + full build + smoke test
+      - run: pnpm sidecar:assemble        # 组装 sidecar（node/pnpm 下载走 .downloads 缓存）
       - run: pnpm --dir apps/desktop tauri build --no-bundle
+      - run: node scripts/smoke-desktop.mjs   # 冒烟：DSH_HOME=临时目录，无窗口自测

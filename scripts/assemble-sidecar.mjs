@@ -60,6 +60,28 @@ export function validateVersions() {
   return problems
 }
 
+/**
+ * sidecar 的 pnpm-workspace.yaml：`nodeLinker: hoisted` 是打包完整性硬要求——
+ * Tauri 打包 bundle.resources 时会跳过符号链接（isolated linker 的
+ * node_modules/@scope 全是 symlink），必须用扁平真实目录才能完整进入安装包。
+ */
+export function buildWorkspaceYaml() {
+  return [
+    'packages:',
+    '  - .',
+    '',
+    'nodeLinker: hoisted',
+    '',
+    'allowBuilds:',
+    "  '@deepseek-ai/dsh-subprocess-local': true",
+    "  '@google/genai': true",
+    '  koffi: true',
+    '  node-pty: true',
+    '  protobufjs: true',
+    '',
+  ].join('\n')
+}
+
 /** 已组装的 sidecar 是否与当前钉版一致（幂等判定）。 */
 export function isCurrent(dir = SIDECAR_DIR) {
   const versionFile = join(dir, 'VERSION.json')
@@ -279,25 +301,9 @@ export async function assemble(opts = {}) {
     join(sidecarDir, 'package.json'),
     JSON.stringify({ private: true, dependencies: { '@deepseek-ai/dsh': DSH_VERSION } }, null, 2),
   )
-  // pnpm ≥10 的构建脚本白名单放在 pnpm-workspace.yaml。dsh 依赖树里的原生
-  // 能力：node-pty 的 prebuild 直接可用；koffi 的二进制经 optional 依赖
-  // （@koromix/koffi-win32-x64）分发，其 install 脚本的 prebuild 检查在
-  // 二进制就位后自动跳过——放行白名单即可，无需本机编译工具链。
-  writeFileSync(
-    join(sidecarDir, 'pnpm-workspace.yaml'),
-    [
-      'packages:',
-      '  - .',
-      '',
-      'allowBuilds:',
-      "  '@deepseek-ai/dsh-subprocess-local': true",
-      "  '@google/genai': true",
-      '  koffi: true',
-      '  node-pty: true',
-      '  protobufjs: true',
-      '',
-    ].join('\n'),
-  )
+  // pnpm ≥10 的构建脚本白名单 + nodeLinker: hoisted 都写在 pnpm-workspace.yaml
+  // （见 buildWorkspaceYaml 注释：hoisted 是打包完整性硬要求）。
+  writeFileSync(join(sidecarDir, 'pnpm-workspace.yaml'), buildWorkspaceYaml())
   const nodeExe = join(nodeDir, 'node.exe')
   const pnpmCjsPath = join(pnpmDir, 'bin', 'pnpm.cjs')
   const env = {

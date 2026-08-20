@@ -8,14 +8,15 @@
 
 mod bridge;
 mod commands;
+pub mod smoke;
 mod tray;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use desk_core::logs::RollingLog;
 use desk_core::supervisor::{Supervisor, SupervisorEvent, SupervisorOptions};
-use desk_core::{logs, paths, ports};
+use desk_core::{logs, paths, ports, profile};
 use tauri::Manager;
 
 use crate::commands::DesktopStatus;
@@ -40,11 +41,21 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 二次启动：聚焦已有窗口（规格 §7 单实例锁）。
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             commands::desktop_state,
             commands::desktop_retry,
             commands::desktop_open_logs,
             commands::desktop_quit,
+            commands::desktop_get_onboarding,
+            commands::desktop_pick_workspace,
         ])
         .setup(|app| {
             let logs_dir = paths::logs_dir();
@@ -108,6 +119,15 @@ async fn supervisor_task(
         .unwrap_or_else(|e| panic!("无法创建 shell 日志: {e}"));
     let _ = shell_log.append("壳启动");
 
+    // 首启初始化 desktop profile（幂等）：web-app 钉 sidecar 同版本、bridge 缺则补。
+    // 失败直接进错误页——宿主版本错配会崩，不能让监督循环空转。
+    if let Err(e) = initialize_profile(&sidecar_root, &node_exe, &bin_js, &shell_log).await {
+        let _ = shell_log.append(&format!("profile 初始化失败: {e}"));
+        set_status(&status, DesktopStatus::failed(e.clone()));
+        navigate_error(&window, &e);
+        return;
+    }
+
     let mut sup = Supervisor::new(SupervisorOptions::default());
     sup.set_log_sink(log_tx);
 
@@ -160,7 +180,7 @@ async fn supervisor_task(
                 .start(
                     port,
                     &node,
-                    &[&bin, "--profile", "desktop", "--port", &port_str],
+                    &[&bin, "--profile", "desktop", "--port", &port_str, "--no-open"],
                     &envs,
                 )
                 .await
@@ -215,11 +235,52 @@ async fn supervisor_task(
     }
 }
 
+/// 首启初始化 desktop profile：读 sidecar 钉版 → ensure_profile_init（幂等）。
+async fn initialize_profile(
+    sidecar_root: &Path,
+    node_exe: &Path,
+    bin_js: &Path,
+    shell_log: &RollingLog,
+) -> Result<(), String> {
+    let dsh_version = profile::read_dsh_version(sidecar_root)?;
+    let bridge_spec = std::env::var("DSH_DESK_BRIDGE_SPEC")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("@JiaosSir/dsh-desk-bridge@{}", env!("CARGO_PKG_VERSION")));
+    let opts = profile::InitOptions {
+        profile_dir: paths::profile_dir(),
+        profile_name: "desktop".to_owned(),
+        node_exe: node_exe.to_owned(),
+        bin_js: bin_js.to_owned(),
+        pnpm_dir: sidecar_root.join("pnpm"),
+        dsh_version,
+        bridge_spec,
+    };
+    let _ = shell_log.append("初始化 desktop profile…");
+    let outcome = profile::ensure_profile_init(&opts).await?;
+    for add in &outcome.ran_adds {
+        let _ = shell_log.append(&format!("profile add: {add}"));
+    }
+    for warn in &outcome.warnings {
+        let _ = shell_log.append(warn);
+    }
+    Ok(())
+}
+
 /// 解析 sidecar 根目录：`SIDECAR_ROOT` 环境变量优先（开发/冒烟），
-/// 否则 `<资源目录>/sidecar-dist`。
+/// 否则开发构建回退源码目录、生产构建用打包的 `<资源目录>/sidecar-dist`。
 fn resolve_sidecar_root(app: &tauri::AppHandle) -> PathBuf {
     if let Some(root) = paths::sidecar_root() {
         return root;
+    }
+    // 开发构建（cargo run / tauri dev）不打包 bundle.resources，resource_dir 里
+    // 可能是过期的残缺副本；直接用源码目录（CARGO_MANIFEST_DIR）下的 sidecar-dist。
+    #[cfg(debug_assertions)]
+    {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
+        if src.join("node").join("node.exe").exists() {
+            return src;
+        }
     }
     app.path()
         .resource_dir()
@@ -228,7 +289,7 @@ fn resolve_sidecar_root(app: &tauri::AppHandle) -> PathBuf {
 }
 
 /// 由 sidecar 根目录推导 node.exe 与 dsh bin.js 的绝对路径。
-fn sidecar_paths(root: &std::path::Path) -> (PathBuf, PathBuf) {
+pub(crate) fn sidecar_paths(root: &std::path::Path) -> (PathBuf, PathBuf) {
     let node_exe = root.join("node").join("node.exe");
     let bin_js = root
         .join("node_modules")
