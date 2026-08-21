@@ -4,5 +4,20 @@
   "description": "DSH-desk 主窗口能力；远程 URL 仅限本机 sidecar 源",
   "windows": ["main"],
   "remote": { "urls": ["http://127.0.0.1:*"] },
-  "permissions": ["core:default", "opener:default", "dialog:default"]
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "allow-desktop-state",
+    "allow-desktop-retry",
+    "allow-desktop-open-logs",
+    "allow-desktop-quit",
+    "allow-desktop-get-onboarding",
+    "allow-desktop-open-releases",
+    "allow-desktop-set-autostart",
+    "allow-desktop-get-autostart",
+    "allow-desktop-get-hotkey",
+    "allow-desktop-notify",
+    "allow-desktop-sync-list",
+    "allow-desktop-sync-add"
+  ]
 }

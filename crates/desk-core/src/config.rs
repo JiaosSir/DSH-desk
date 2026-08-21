@@ -1,4 +1,4 @@
-//! Desktop 自有状态（`~/.dsh/desktop/config.json`）：工作区、全局快捷键、开机自启。
+//! Desktop 自有状态（`~/.dsh/desktop/config.json`）：全局快捷键、开机自启。
 //!
 //! 读取失败一律回退默认值（fail-open，不阻塞启动）：文件缺失、JSON 非法、字段
 //! 缺失都得到可用默认配置；只有写入失败才报错（失败要在启动时可见）。
@@ -13,11 +13,10 @@ fn default_hotkey() -> String {
     "Ctrl+Alt+D".to_string()
 }
 
-/// 桌面配置：工作区（首次引导选定）、快捷键（v1 只读展示）、开机自启。
+/// 桌面配置：快捷键（v1 只读展示）、开机自启。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DesktopConfig {
-    pub workspace: Option<String>,
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
     pub autostart: bool,
@@ -26,7 +25,6 @@ pub struct DesktopConfig {
 impl Default for DesktopConfig {
     fn default() -> Self {
         Self {
-            workspace: None,
             hotkey: default_hotkey(),
             autostart: false,
         }
@@ -79,7 +77,6 @@ mod tests {
         assert_eq!(
             cfg,
             DesktopConfig {
-                workspace: None,
                 hotkey: "Ctrl+Alt+D".to_string(),
                 autostart: false,
             }
@@ -93,17 +90,15 @@ mod tests {
         let cfg = load_from(tmp.path());
         assert_eq!(cfg.hotkey, "Ctrl+Alt+D");
         assert!(!cfg.autostart);
-        assert_eq!(cfg.workspace, None);
     }
 
     #[test]
     fn 部分字段保留其余兜底() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(config_path(tmp.path()), r#"{"workspace":"D:\\work"}"#).unwrap();
+        std::fs::write(config_path(tmp.path()), r#"{"autostart":true}"#).unwrap();
         let cfg = load_from(tmp.path());
-        assert_eq!(cfg.workspace.as_deref(), Some("D:\\work"));
+        assert!(cfg.autostart);
         assert_eq!(cfg.hotkey, "Ctrl+Alt+D");
-        assert!(!cfg.autostart);
     }
 
     #[test]
@@ -118,7 +113,6 @@ mod tests {
     fn 读写往返() {
         let tmp = TempDir::new().unwrap();
         let cfg = DesktopConfig {
-            workspace: Some("D:\\project".to_string()),
             hotkey: "Ctrl+Shift+D".to_string(),
             autostart: true,
         };

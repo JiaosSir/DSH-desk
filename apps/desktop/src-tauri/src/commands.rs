@@ -3,7 +3,6 @@
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
-use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{AppState, ShellCommand};
@@ -93,36 +92,19 @@ pub fn desktop_quit(app: AppHandle, state: State<'_, AppState>) -> Result<(), St
     Ok(())
 }
 
-/// 首次引导状态：工作区（`~/.dsh/desktop/config.json`）+ 是否已有 API key。
+/// 首次引导状态：是否已有 API key（值不读，只判存在性）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopOnboarding {
-    pub workspace: Option<String>,
     pub has_api_key: bool,
 }
 
-/// 首次引导状态：工作区读桌面配置；hasApiKey 只判键名存在性（不读值）。
+/// 首次引导状态。
 #[tauri::command]
 pub fn desktop_get_onboarding() -> DesktopOnboarding {
-    let config = desk_core::config::load();
     DesktopOnboarding {
-        workspace: config.workspace,
         has_api_key: desk_core::credentials::has_api_key(&desk_core::paths::dsh_home()),
     }
-}
-
-/// 原生文件夹选择 → 写 config.json 的 workspace → 返回所选路径（取消返回 null）。
-#[tauri::command]
-pub async fn desktop_pick_workspace(app: AppHandle) -> Option<String> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<Option<std::path::PathBuf>>();
-    app.dialog().file().pick_folder(move |path| {
-        let _ = tx.send(path.and_then(|p| p.into_path().ok()));
-    });
-    let chosen = rx.await.ok().flatten()?;
-    let mut config = desk_core::config::load();
-    config.workspace = Some(chosen.to_string_lossy().into_owned());
-    let _ = desk_core::config::save(&config);
-    Some(chosen.to_string_lossy().into_owned())
 }
 
 /// 打开 GitHub Releases（系统浏览器；用户主动触发，规格 §9）。

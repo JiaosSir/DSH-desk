@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-get-autostart"
+description = "Enables the desktop_get_autostart command without any pre-configured scope."
+commands.allow = ["desktop_get_autostart"]
+
+[[permission]]
+identifier = "deny-desktop-get-autostart"
+description = "Denies the desktop_get_autostart command without any pre-configured scope."
+commands.deny = ["desktop_get_autostart"]

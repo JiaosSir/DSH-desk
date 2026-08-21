@@ -46,40 +46,38 @@ const buttonStyle: CSSProperties = {
 export function DesktopSettings({ bridge }: DesktopSettingsProps): ReactElement {
   const [autostart, setAutostart] = useState(false)
   const [hotkey, setHotkey] = useState('')
-  const [workspace, setWorkspace] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     void bridge.getAutostart().then(setAutostart).catch(() => {})
     void bridge.getHotkey().then(setHotkey).catch(() => {})
-    void bridge.getWorkspace().then(setWorkspace).catch(() => {})
   }, [bridge])
 
-  const toggleAutostart = async (): Promise<void> => {
+  /** 统一失败反馈：按钮不能静默死掉。 */
+  const run = async (action: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
+    setError(null)
     try {
-      setAutostart(await bridge.setAutostart(!autostart))
-    } catch {
-      // 壳侧失败保持原状态。
+      await action()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       setBusy(false)
     }
   }
 
-  const pickWorkspace = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      const path = await bridge.pickFolder()
-      if (path !== null) setWorkspace(path)
-    } catch {
-      // 取消或失败保持原状态。
-    } finally {
-      setBusy(false)
-    }
+  const toggleAutostart = async (): Promise<void> => {
+    await run(async () => {
+      setAutostart(await bridge.setAutostart(!autostart))
+    })
   }
 
   return (
     <div style={{ padding: '4px 0' }}>
+      {error !== null && (
+        <div style={{ fontSize: 12, color: '#ff8f98', padding: '6px 0' }}>操作失败：{error}</div>
+      )}
       <div style={rowStyle}>
         <div>
           <div style={labelStyle}>开机自启</div>
@@ -99,15 +97,6 @@ export function DesktopSettings({ bridge }: DesktopSettingsProps): ReactElement 
           <div style={labelStyle}>全局快捷键</div>
           <div style={hintStyle}>{hotkey || '…'}（唤起/隐藏窗口）</div>
         </div>
-      </div>
-      <div style={rowStyle}>
-        <div>
-          <div style={labelStyle}>工作区</div>
-          <div style={hintStyle}>{workspace ?? '未选择'}</div>
-        </div>
-        <button type="button" style={buttonStyle} disabled={busy} onClick={() => void pickWorkspace()}>
-          选择…
-        </button>
       </div>
       <div style={rowStyle}>
         <div>

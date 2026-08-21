@@ -11,10 +11,6 @@
 export interface DeskBridge {
   /** 每个方法都由壳背书时为 true。 */
   readonly available: boolean
-  /** 原生文件夹选择器；取消时返回 null。 */
-  pickFolder(): Promise<string | null>
-  /** 当前工作区路径（config.json 的 workspace；未选择为 null）。 */
-  getWorkspace(): Promise<string | null>
   /** 当前全局快捷键（只读展示）。 */
   getHotkey(): Promise<string>
   /** 在资源管理器中打开本地日志目录。 */

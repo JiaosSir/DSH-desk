@@ -7,8 +7,6 @@
 pub const BRIDGE_SCRIPT: &str = r#"
 window.__DSH_DESK__ = {
   available: true,
-  pickFolder: () => window.__TAURI__.core.invoke('desktop_pick_workspace'),
-  getWorkspace: async () => (await window.__TAURI__.core.invoke('desktop_get_onboarding')).workspace ?? null,
   getHotkey: () => window.__TAURI__.core.invoke('desktop_get_hotkey'),
   openLogs: () => window.__TAURI__.core.invoke('desktop_open_logs'),
   openReleases: () => window.__TAURI__.core.invoke('desktop_open_releases'),

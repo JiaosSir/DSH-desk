@@ -38,8 +38,6 @@ function mockCtx(): MockCtx {
 function mockBridge() {
   return {
     available: true,
-    pickFolder: vi.fn(async () => null),
-    getWorkspace: vi.fn(async () => null),
     getHotkey: vi.fn(async () => 'Ctrl+Alt+D'),
     openLogs: vi.fn(async () => {}),
     openReleases: vi.fn(async () => {}),
