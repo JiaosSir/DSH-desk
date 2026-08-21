@@ -13,6 +13,10 @@ export interface DeskBridge {
   readonly available: boolean
   /** 原生文件夹选择器；取消时返回 null。 */
   pickFolder(): Promise<string | null>
+  /** 当前工作区路径（config.json 的 workspace；未选择为 null）。 */
+  getWorkspace(): Promise<string | null>
+  /** 当前全局快捷键（只读展示）。 */
+  getHotkey(): Promise<string>
   /** 在资源管理器中打开本地日志目录。 */
   openLogs(): Promise<void>
   /** 在系统浏览器中打开 GitHub Releases 页面。 */

@@ -9,6 +9,7 @@
 mod bridge;
 mod commands;
 pub mod smoke;
+mod shortcuts;
 mod tray;
 
 use std::path::{Path, PathBuf};
@@ -29,11 +30,21 @@ pub enum ShellCommand {
     Stop,
 }
 
+/// sidecar 关键路径（setup 解析一次，命令与监督任务共用）。
+#[derive(Clone)]
+pub struct SidecarPaths {
+    pub root: PathBuf,
+    pub node_exe: PathBuf,
+    pub bin_js: PathBuf,
+    pub pnpm_dir: PathBuf,
+}
+
 /// 应用级共享状态：状态快照（命令读取）与命令通道（命令写入）。
 pub struct AppState {
     pub status: Arc<Mutex<DesktopStatus>>,
     pub cmd_tx: tokio::sync::mpsc::UnboundedSender<ShellCommand>,
     pub logs_dir: PathBuf,
+    pub sidecar: SidecarPaths,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -49,6 +60,12 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::desktop_state,
             commands::desktop_retry,
@@ -56,18 +73,41 @@ pub fn run() {
             commands::desktop_quit,
             commands::desktop_get_onboarding,
             commands::desktop_pick_workspace,
+            commands::desktop_open_releases,
+            commands::desktop_set_autostart,
+            commands::desktop_get_autostart,
+            commands::desktop_get_hotkey,
+            commands::desktop_notify,
+            commands::desktop_sync_list,
+            commands::desktop_sync_add,
         ])
         .setup(|app| {
             let logs_dir = paths::logs_dir();
             let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel::<ShellCommand>();
             let status = Arc::new(Mutex::new(DesktopStatus::starting()));
+            // sidecar 路径解析一次：监督任务与同步导入命令共用。
+            let sidecar = {
+                let root = resolve_sidecar_root(&app.handle());
+                let (node_exe, bin_js) = sidecar_paths(&root);
+                SidecarPaths {
+                    pnpm_dir: root.join("pnpm"),
+                    root,
+                    node_exe,
+                    bin_js,
+                }
+            };
             app.manage(AppState {
                 status: Arc::clone(&status),
                 cmd_tx,
                 logs_dir: logs_dir.clone(),
+                sidecar,
             });
             // 窗口在代码里创建：等待页之外还需注入 __DSH_DESK__ 桥。
-            let window = tauri::WebviewWindowBuilder::new(
+            // WebView 硬化：仅允许 tauri:// 本地页与本机 sidecar 源，外链交系统浏览器；
+            // release 构建禁 devtools（规格 §6.6）。
+            // release 构建禁 devtools（规格 §6.6）；debug 下无需重赋值。
+            #[allow(unused_mut)]
+            let mut window_builder = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
@@ -76,8 +116,20 @@ pub fn run() {
             .inner_size(1280.0, 800.0)
             .center()
             .initialization_script(bridge::BRIDGE_SCRIPT)
-            .build()?;
+            .on_navigation(|url| {
+                if url.scheme() == "tauri" || url.host_str() == Some("127.0.0.1") {
+                    return true;
+                }
+                let _ = open::that(url.as_str());
+                false
+            });
+            #[cfg(not(debug_assertions))]
+            {
+                window_builder = window_builder.devtools(false);
+            }
+            let window = window_builder.build()?;
             tray::init(app)?;
+            shortcuts::init(app)?;
             // 监督任务：拥有 Supervisor，消费命令通道，镜像事件到状态与 WebView。
             tauri::async_runtime::spawn(supervisor_task(
                 app.handle().clone(),
@@ -106,9 +158,11 @@ async fn supervisor_task(
     status: Arc<Mutex<DesktopStatus>>,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<ShellCommand>,
 ) {
-    // sidecar 根目录：SIDECAR_ROOT 环境变量优先（开发/冒烟），否则随包资源目录。
-    let sidecar_root = resolve_sidecar_root(&app);
-    let (node_exe, bin_js) = sidecar_paths(&sidecar_root);
+    // sidecar 路径：setup 已解析并存于 AppState。
+    let sidecar = app.state::<AppState>().sidecar.clone();
+    let node_exe = sidecar.node_exe;
+    let bin_js = sidecar.bin_js;
+    let pnpm_dir = sidecar.pnpm_dir;
     let (log_tx, mut log_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     // 日志：sidecar 原始行 + 壳事件各一个滚动文件。
@@ -121,7 +175,7 @@ async fn supervisor_task(
 
     // 首启初始化 desktop profile（幂等）：web-app 钉 sidecar 同版本、bridge 缺则补。
     // 失败直接进错误页——宿主版本错配会崩，不能让监督循环空转。
-    if let Err(e) = initialize_profile(&sidecar_root, &node_exe, &bin_js, &shell_log).await {
+    if let Err(e) = initialize_profile(&sidecar.root, &node_exe, &bin_js, &shell_log).await {
         let _ = shell_log.append(&format!("profile 初始化失败: {e}"));
         set_status(&status, DesktopStatus::failed(e.clone()));
         navigate_error(&window, &e);
@@ -141,7 +195,6 @@ async fn supervisor_task(
     });
 
     // sidecar 环境：零遥测开关 + 自带 pnpm 注入 PATH（dsh plugin 命令的 .cmd 语义）。
-    let pnpm_dir = sidecar_root.join("pnpm");
     let mut envs: Vec<(String, String)> =
         vec![("DSH_TELEMETRY_DISABLED".to_owned(), "1".to_owned())];
     let inherited_path = std::env::var_os("PATH").unwrap_or_default();

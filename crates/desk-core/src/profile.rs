@@ -112,20 +112,47 @@ fn read_dependencies(dir: &Path) -> Result<BTreeMap<String, String>, String> {
     Ok(deps)
 }
 
+/// 给 desktop profile 追加插件的参数（设置区「从 web 导入」用）。
+#[derive(Debug, Clone)]
+pub struct PluginAddOptions {
+    pub profile_dir: PathBuf,
+    pub profile_name: String,
+    pub node_exe: PathBuf,
+    pub bin_js: PathBuf,
+    pub pnpm_dir: PathBuf,
+}
+
+/// 给 profile 追加一个插件（`dsh plugin --profile <name> add <pkg>`）；
+/// 失败时修复 allowBuilds 占位符并重试一次（与 ensure_profile_init 同策略）。
+pub async fn add_profile_plugin(opts: &PluginAddOptions, pkg: &str) -> Result<(), String> {
+    let result = run_add_parts(&opts.node_exe, &opts.bin_js, &opts.pnpm_dir, &opts.profile_name, pkg).await;
+    if result.is_ok() {
+        return result;
+    }
+    ensure_allow_builds(&opts.profile_dir)?;
+    run_add_parts(&opts.node_exe, &opts.bin_js, &opts.pnpm_dir, &opts.profile_name, pkg).await
+}
+
 /// 经 sidecar 自带 node 执行 `dsh plugin --profile <name> add <pkg>`；
 /// env 注入自带 pnpm 到 PATH 头部 + 零遥测开关。非零退出返回带尾部输出的错误。
 async fn run_add(opts: &InitOptions, pkg: &str) -> Result<(), String> {
+    run_add_parts(&opts.node_exe, &opts.bin_js, &opts.pnpm_dir, &opts.profile_name, pkg).await
+}
+
+async fn run_add_parts(
+    node_exe: &Path,
+    bin_js: &Path,
+    pnpm_dir: &Path,
+    profile_name: &str,
+    pkg: &str,
+) -> Result<(), String> {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
     let sep = if cfg!(windows) { ";" } else { ":" };
-    let path = format!(
-        "{}{sep}{}",
-        opts.pnpm_dir.display(),
-        inherited.to_string_lossy()
-    );
+    let path = format!("{}{sep}{}", pnpm_dir.display(), inherited.to_string_lossy());
 
-    let output = tokio::process::Command::new(&opts.node_exe)
-        .arg(&opts.bin_js)
-        .args(["plugin", "--profile", &opts.profile_name])
+    let output = tokio::process::Command::new(node_exe)
+        .arg(bin_js)
+        .args(["plugin", "--profile", profile_name])
         .args(["add", pkg])
         .env("PATH", path)
         .env("DSH_TELEMETRY_DISABLED", "1")
@@ -321,6 +348,31 @@ if (pkg && pkg.includes('FAILONCE')) {
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
         assert_eq!(
             log.matches("@deepseek-ai/dsh-web-app@FAILONCE").count(),
+            2,
+            "第一次失败后应重试一次"
+        );
+    }
+
+    #[tokio::test]
+    async fn 追加插件_失败后修复占位符并重试() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        let stub = write_stub(&tmp);
+        let opts = PluginAddOptions {
+            profile_dir: profile.clone(),
+            profile_name: "desktop".into(),
+            node_exe: "node".into(),
+            bin_js: stub,
+            pnpm_dir: profile.join("pnpm-stub"),
+        };
+        add_profile_plugin(&opts, "@linxin666/dsh-ssh@FAILONCE").await.unwrap();
+        let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
+        assert_eq!(
+            log.matches("@linxin666/dsh-ssh@FAILONCE").count(),
             2,
             "第一次失败后应重试一次"
         );

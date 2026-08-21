@@ -124,3 +124,77 @@ pub async fn desktop_pick_workspace(app: AppHandle) -> Option<String> {
     let _ = desk_core::config::save(&config);
     Some(chosen.to_string_lossy().into_owned())
 }
+
+/// 打开 GitHub Releases（系统浏览器；用户主动触发，规格 §9）。
+#[tauri::command]
+pub fn desktop_open_releases(app: AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url("https://github.com/JiaosSir/DSH-desk/releases", None::<&str>)
+        .map_err(|e| format!("打开 Releases 失败: {e}"))
+}
+
+/// 设置开机自启；返回持久化后的状态。
+#[tauri::command]
+pub fn desktop_set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if enabled {
+        manager.enable().map_err(|e| format!("启用自启失败: {e}"))?;
+    } else {
+        manager.disable().map_err(|e| format!("禁用自启失败: {e}"))?;
+    }
+    manager.is_enabled().map_err(|e| format!("读取自启状态失败: {e}"))
+}
+
+/// 当前开机自启状态。
+#[tauri::command]
+pub fn desktop_get_autostart(app: AppHandle) -> bool {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+/// 当前全局快捷键（config.json，只读展示）。
+#[tauri::command]
+pub fn desktop_get_hotkey() -> String {
+    desk_core::config::load().hotkey
+}
+
+/// 系统通知镜像（审批事件等）。
+#[tauri::command]
+pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| format!("系统通知失败: {e}"))
+}
+
+/// web→desktop 同步差集（web 有而 desktop 无的 `name@version`）。
+#[tauri::command]
+pub fn desktop_sync_list() -> Vec<String> {
+    let home = desk_core::paths::dsh_home();
+    desk_core::profile::compute_sync_diff(
+        &home.join("profiles").join("web"),
+        &home.join("profiles").join("desktop"),
+    )
+    .missing
+}
+
+/// 从 web 导入一个插件到 desktop profile（壳跑 `dsh plugin add`）。
+#[tauri::command]
+pub async fn desktop_sync_add(pkg: String, state: State<'_, AppState>) -> Result<(), String> {
+    let sidecar = state.sidecar.clone();
+    desk_core::profile::add_profile_plugin(
+        &desk_core::profile::PluginAddOptions {
+            profile_dir: desk_core::paths::profile_dir(),
+            profile_name: "desktop".to_owned(),
+            node_exe: sidecar.node_exe,
+            bin_js: sidecar.bin_js,
+            pnpm_dir: sidecar.pnpm_dir,
+        },
+        &pkg,
+    )
+    .await
+}
