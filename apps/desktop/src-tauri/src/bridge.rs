@@ -7,6 +7,7 @@
 pub const BRIDGE_SCRIPT: &str = r#"
 window.__DSH_DESK__ = {
   available: true,
+  getState: () => window.__TAURI__.core.invoke('desktop_state'),
   getHotkey: () => window.__TAURI__.core.invoke('desktop_get_hotkey'),
   openLogs: () => window.__TAURI__.core.invoke('desktop_open_logs'),
   openReleases: () => window.__TAURI__.core.invoke('desktop_open_releases'),

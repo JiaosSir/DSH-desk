@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
  * portable zip 组装（计划任务 5.1 Step 2）：从 `target/release/` 收集
- * `dsh-desk.exe` + 同层 `sidecar-dist/`（Tauri 把 bundle.resources 平铺在
- * exe 旁边，非 `resources/` 子目录——以真实构建产物为准），用系统 bsdtar
- * （Windows 10 1803+ / windows-latest 自带 tar.exe）打成 zip，根目录名
- * `DSH-desk-portable-<version>-x64`，并校验 zip 内含 exe 与
- * `sidecar-dist/node/node.exe`。
+ * `dsh-desk.exe` + 打包资产 `sidecar-dist.tar` / `sidecar-version.json`
+ * （Tauri 把 bundle.resources 平铺在 exe 旁边，非 `resources/` 子目录——
+ * 以真实构建产物为准），用系统 bsdtar（Windows 10 1803+ / windows-latest
+ * 自带 tar.exe）打成 zip，根目录名 `DSH-desk-portable-<version>-x64`，
+ * 并校验 zip 内含 exe 与两个资产。方案 A：sidecar 以单个 tar 分发，
+ * 应用首启解压到本地缓存（`%LOCALAPPDATA%\com.dsh.desk\sidecar-dist`）。
  *
  * 用法：node scripts/build-portable.mjs [targetDir]
  */
@@ -17,14 +18,15 @@ import { listZipEntries } from './zip-entries.mjs'
 
 const targetDir = resolve(process.argv[2] ?? 'target/release')
 const exe = join(targetDir, 'dsh-desk.exe')
-const sidecar = join(targetDir, 'sidecar-dist')
+const sidecarTar = join(targetDir, 'sidecar-dist.tar')
+const sidecarVersion = join(targetDir, 'sidecar-version.json')
 
 if (!existsSync(exe)) {
   console.error(`portable: exe 不存在: ${exe}（先跑 pnpm --dir apps/desktop tauri build --no-bundle）`)
   process.exit(1)
 }
-if (!existsSync(join(sidecar, 'node', 'node.exe'))) {
-  console.error(`portable: sidecar 不完整: ${sidecar}（先跑 pnpm sidecar:assemble 再构建）`)
+if (!existsSync(sidecarTar) || !existsSync(sidecarVersion)) {
+  console.error('portable: 打包资产不完整（sidecar-dist.tar / sidecar-version.json 缺失）——先跑 pnpm sidecar:assemble 再构建')
   process.exit(1)
 }
 
@@ -45,7 +47,8 @@ rmSync(staging, { recursive: true, force: true })
 mkdirSync(staging, { recursive: true })
 
 cpSync(exe, join(staging, 'dsh-desk.exe'))
-cpSync(sidecar, join(staging, 'sidecar-dist'), { recursive: true })
+cpSync(sidecarTar, join(staging, 'sidecar-dist.tar'))
+cpSync(sidecarVersion, join(staging, 'sidecar-version.json'))
 
 console.log('portable: 打 zip（bsdtar）…')
 const tar = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
@@ -67,7 +70,7 @@ if (r.status !== 0) {
 console.log('portable: 校验 zip 内容…')
 const entries = await listZipEntries(zipPath)
 const names = new Set(entries.map((e) => e.name))
-const want = ['dsh-desk.exe', 'sidecar-dist/node/node.exe']
+const want = ['dsh-desk.exe', 'sidecar-dist.tar', 'sidecar-version.json']
 for (const w of want) {
   // bsdtar 条目名带根目录前缀，两种形态都接受
   const hit = names.has(w) || names.has(`${rootName}/${w}`)

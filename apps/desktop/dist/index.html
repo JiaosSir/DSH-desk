@@ -29,6 +29,9 @@
       @keyframes spin { to { transform: rotate(360deg); } }
       h1 { font-size: 18px; font-weight: 600; margin: 0; }
       p { margin: 0; font-size: 13px; color: #8b93a1; }
+      #progress-wrap { width: 320px; height: 6px; border-radius: 3px; background: #2a2f3a; overflow: hidden; }
+      #progress-bar { height: 100%; width: 0%; background: #4d7cfe; transition: width 0.2s linear; }
+      #error { display: none; max-width: 420px; font-size: 13px; color: #ff8f98; white-space: pre-wrap; word-break: break-all; }
       #actions { display: flex; gap: 10px; margin-top: 8px; }
       button {
         padding: 6px 14px;
@@ -46,18 +49,48 @@
     <div class="spinner"></div>
     <h1>正在启动 DeepSeek Harness…</h1>
     <p id="hint">首次运行会准备本地环境，请稍候。</p>
+    <div id="progress-wrap" hidden><div id="progress-bar"></div></div>
+    <p id="error"></p>
     <div id="actions" hidden>
       <button id="quit">退出</button>
       <button id="logs">打开日志目录</button>
     </div>
     <script>
-      // The shell injects window.__DSH_DESK__ via an initialization script.
-      // In a plain browser (this page opened directly) the buttons stay hidden.
+      // 壳经 initialization script 注入 window.__DSH_DESK__；纯浏览器直接打开时不存在。
       const bridge = window.__DSH_DESK__
+      const actions = document.getElementById('actions')
+      const errorEl = document.getElementById('error')
+      const progressWrap = document.getElementById('progress-wrap')
+      const progressBar = document.getElementById('progress-bar')
+      const hint = document.getElementById('hint')
+
       if (bridge && typeof bridge.quit === 'function') {
-        document.getElementById('actions').hidden = false
+        actions.hidden = false
         document.getElementById('quit').addEventListener('click', () => void bridge.quit())
         document.getElementById('logs').addEventListener('click', () => void bridge.openLogs())
+      }
+
+      // 轮询壳状态：preparing（首启解压打包资产）显示进度条；failed 显示失败原因。
+      if (bridge && typeof bridge.getState === 'function') {
+        const poll = async () => {
+          try {
+            const state = await bridge.getState()
+            if (state && state.phase === 'preparing') {
+              const pct = Math.round((state.progress ?? 0) * 100)
+              progressWrap.hidden = false
+              progressBar.style.width = `${pct}%`
+              hint.textContent = `正在准备本地环境… ${pct}%`
+            } else if (state && state.phase === 'failed') {
+              errorEl.style.display = 'block'
+              errorEl.textContent = `启动失败：${state.error ?? '未知原因'}`
+              hint.textContent = '可打开日志目录查看详情，或点击「退出」。'
+            }
+          } catch {
+            // 忽略单次轮询失败（页面即将被导航走或桥不可用）。
+          }
+        }
+        void poll()
+        setInterval(() => void poll(), 250)
       }
     </script>
   </body>

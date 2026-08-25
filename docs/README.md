@@ -65,6 +65,7 @@ node scripts/assemble-sidecar.mjs --force   # 强制重建
 ```
 
 - 产物：`apps/desktop/src-tauri/sidecar-dist/`（约 330MB：node 101 + 依赖树 211 + pnpm 18）；
+- **打包资产（方案 A）**：组装收尾把 sidecar 打成**未压缩 tar** `sidecar-dist.tar` 并复制版本文件 `sidecar-version.json`（均与 sidecar-dist 并列在 `src-tauri/` 下），随 `bundle.resources` 进安装包——安装时只解 1 个大文件（压缩交给 NSIS solid LZMA，体积与平铺目录持平），应用首启再解压到本地缓存（见「打包」一节）；
 - 下载缓存在 `.downloads/`（可手动把 `node-v*-win-x64.zip`、`pnpm-*.tgz` 放进去加速）；
 - **版本钉死常量**在 `scripts/assemble-sidecar.mjs` 顶部（`NODE_VERSION` / `PNPM_VERSION` / `DSH_VERSION`），升级 harness = 改 `DSH_VERSION` 后重新组装 + 发新版安装包。
 
@@ -100,7 +101,7 @@ D:\project\open-source\DSH-desk\target\debug\dsh-desk.exe
 
 启动序列：解析 sidecar → 初始化 desktop profile（幂等：web-app 钉 sidecar 同版本、bridge 缺则补）→ 选空闲端口 → 拉起 sidecar（`dsh --profile desktop --port N --no-open`，环境注入 `DSH_TELEMETRY_DISABLED=1` 与自带 pnpm 的 PATH）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 自动导航。崩溃按 1s/2s/4s 退避重启（3 次上限），耗尽后展示错误页（重试 / 打开日志目录 / 退出）。托盘菜单：显示/隐藏、重启宿主、打开日志目录、退出。
 
-生产包用打包的资源目录（`resources/sidecar-dist`），无需设置 `SIDECAR_ROOT`。
+生产包只携带 `sidecar-dist.tar` + `sidecar-version.json`：首启把它们解压到 `%LOCALAPPDATA%\com.dsh.desk\sidecar-dist`（等待页显示进度条），按 VERSION.json 幂等，之后启动直接复用；环境变量 `DSH_DESK_SIDECAR_CACHE` 可覆盖缓存目录（冒烟/调试用）。`SIDECAR_ROOT` 仍可指向任意解压好的目录绕过上述流程。
 
 ## 测试
 
@@ -120,8 +121,10 @@ pnpm --dir apps/desktop tauri build --bundles nsis       # NSIS 每用户安装�
 ```
 
 - 产物：`apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe`；
+- 安装包只含 shell + `sidecar-dist.tar` + `sidecar-version.json`（约 130MB 压缩后），安装即「复制 1 个大文件」，不再逐文件解压 3 万多个 node_modules 文件；
+- 首启在等待页显示「正在准备本地环境… N%」解压进度（0.5–2 分钟，取决于磁盘与杀软），之后启动秒开；升级版本（`VERSION.json` 三字段任一变化）自动重解；
 - 安装包免管理员（`installMode: currentUser`），WebView2 缺失时自动引导安装（`downloadBootstrapper`）；
-- portable zip 组装脚本（`scripts/build-portable.mjs`）与 tag 触发的 GitHub Releases 流水线在阶段 5 落地；
+- portable zip 组装脚本（`scripts/build-portable.mjs`）同样只携带 tar（解压更快），首启解压逻辑与安装版一致；
 - v1 不签名（SmartScreen 见「常见问题」）。
 
 ## 日志

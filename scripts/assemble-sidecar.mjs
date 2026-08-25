@@ -38,6 +38,18 @@ export const DSH_VERSION = '0.1.1-rc.2' // npm 最新 rc（latest/next 标签；
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 export const SIDECAR_DIR = join(REPO_ROOT, 'apps', 'desktop', 'src-tauri', 'sidecar-dist')
+
+/**
+ * 由 sidecar 根目录推导打包资产路径（tar 与版本文件在 src-tauri/ 下、
+ * 与 sidecar-dist 并列，随 `bundle.resources` 进安装包）。
+ */
+export function sidecarAssetPaths(sidecarDir = SIDECAR_DIR) {
+  const tauriDir = dirname(sidecarDir)
+  return {
+    tar: join(tauriDir, 'sidecar-dist.tar'),
+    versionFile: join(tauriDir, 'sidecar-version.json'),
+  }
+}
 /// 下载缓存目录：命中即免下载；手动下载的文件也可以直接放进这里。
 export const DOWNLOAD_CACHE = join(REPO_ROOT, '.downloads')
 const NODE_ZIP = `node-v${NODE_VERSION}-win-x64.zip`
@@ -92,6 +104,53 @@ export function isCurrent(dir = SIDECAR_DIR) {
   } catch {
     return false
   }
+}
+
+/** 打包资产（tar + 版本文件）是否存在且与当前钉版一致。 */
+export function assetsCurrent(dir = SIDECAR_DIR) {
+  const { tar, versionFile } = sidecarAssetPaths(dir)
+  if (!existsSync(tar) || !existsSync(versionFile)) return false
+  try {
+    const v = JSON.parse(readFileSync(versionFile, 'utf8'))
+    return v.node === NODE_VERSION && v.pnpm === PNPM_VERSION && v.dsh === DSH_VERSION
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 生成打包资产：把 VERSION.json 复制为 sidecar-version.json（启动期 O(1)
+ * 版本校验用），并用系统 tar 把 sidecar-dist 打成**未压缩** tar——压缩交给
+ * NSIS solid LZMA（同一字节流，体积与现状持平），应用侧首启只做纯解包，
+ * 避免「zip 再 LZMA」的双重压缩损失。
+ */
+export function createSidecarAssets(sidecarDir = SIDECAR_DIR, runTar = defaultRunTar) {
+  const { tar, versionFile } = sidecarAssetPaths(sidecarDir)
+  copyFileSync(join(sidecarDir, 'VERSION.json'), versionFile)
+  runTar(tar, sidecarDir)
+}
+
+/** 默认 tar 打包：Windows 自带 bsdtar（Win10 1803+），与 build-portable 同源。
+ * 条目用相对路径（`-C <sidecarDir> .`，形如 `./VERSION.json`），解压时直接
+ * join 到缓存目录即得正确布局（若带 `sidecar-dist/` 前缀会整体下沉一层）。
+ * 先写临时文件再 rename：被打断的打包不会把半截 tar 留在最终路径上
+ * （assetsCurrent 只按「存在」判定，最终路径上的 tar 必须完整）。 */
+function defaultRunTar(tarPath, sidecarDir) {
+  const tarExe = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+  if (!existsSync(tarExe)) {
+    throw new Error(`系统 tar.exe 不存在，无法生成 sidecar 打包资产: ${tarExe}`)
+  }
+  const tmp = `${tarPath}.tmp-${process.pid}`
+  rmSync(tmp, { force: true })
+  const result = spawnSync(tarExe, ['-cf', tmp, '-C', sidecarDir, '.'], {
+    stdio: 'inherit',
+  })
+  if (result.status !== 0) {
+    rmSync(tmp, { force: true })
+    throw new Error(`tar 打包失败（退出码 ${result.status}）: ${tarPath}`)
+  }
+  rmSync(tarPath, { force: true })
+  renameSync(tmp, tarPath)
 }
 
 // ── 下载与解包 ─────────────────────────────────────────────────────────────
@@ -242,6 +301,7 @@ export async function assemble(opts = {}) {
     downloadFile: download = downloadCached,
     extractArchive: extract = extractArchive,
     runPnpmInstall,
+    runTarCreate,
     sidecarDir = SIDECAR_DIR,
   } = opts
   const nodeDir = join(sidecarDir, 'node')
@@ -340,7 +400,8 @@ export async function assemble(opts = {}) {
   }
   console.log('  依赖树就绪')
 
-  // 4. 收尾：清理临时目录，落 VERSION.json；package.json 去掉依赖声明（node_modules 保留）。
+  // 4. 收尾：清理临时目录，落 VERSION.json；package.json 去掉依赖声明（node_modules 保留）；
+  //    生成打包资产（tar + 版本文件，随 bundle.resources 进安装包）。
   rmSync(tmpDir, { recursive: true, force: true })
   writeFileSync(
     join(sidecarDir, 'package.json'),
@@ -359,6 +420,8 @@ export async function assemble(opts = {}) {
       2,
     ) + '\n',
   )
+  console.log('[4/4] 生成打包资产（sidecar-dist.tar + sidecar-version.json）…')
+  createSidecarAssets(sidecarDir, runTarCreate)
   console.log('[4/4] 完成')
   return sidecarDir
 }
@@ -375,9 +438,15 @@ if (isMain) {
     process.exit(1)
   }
   const force = process.argv.includes('--force')
-  if (!force && isCurrent()) {
+  if (!force && isCurrent() && assetsCurrent()) {
     console.log(`sidecar 已是最新（node ${NODE_VERSION} / pnpm ${PNPM_VERSION} / dsh ${DSH_VERSION}），跳过。`)
     console.log('如需重建: node scripts/assemble-sidecar.mjs --force')
+    process.exit(0)
+  }
+  if (!force && isCurrent() && !assetsCurrent()) {
+    console.log('sidecar 已最新，但打包资产（sidecar-dist.tar / sidecar-version.json）缺失或过期，仅重建资产…')
+    createSidecarAssets()
+    console.log('打包资产已重建')
     process.exit(0)
   }
   assemble()

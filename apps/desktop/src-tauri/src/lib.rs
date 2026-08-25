@@ -45,6 +45,9 @@ pub struct AppState {
     pub cmd_tx: tokio::sync::mpsc::UnboundedSender<ShellCommand>,
     pub logs_dir: PathBuf,
     pub sidecar: SidecarPaths,
+    /// 打包资产（方案 A）：release 模式为 Some；dev/`SIDECAR_ROOT` 模式为 None。
+    pub sidecar_archive: Option<PathBuf>,
+    pub sidecar_version_file: Option<PathBuf>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -84,21 +87,14 @@ pub fn run() {
             let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel::<ShellCommand>();
             let status = Arc::new(Mutex::new(DesktopStatus::starting()));
             // sidecar 路径解析一次：监督任务与同步导入命令共用。
-            let sidecar = {
-                let root = resolve_sidecar_root(&app.handle());
-                let (node_exe, bin_js) = sidecar_paths(&root);
-                SidecarPaths {
-                    pnpm_dir: root.join("pnpm"),
-                    root,
-                    node_exe,
-                    bin_js,
-                }
-            };
+            let layout = resolve_sidecar_layout(app.handle());
             app.manage(AppState {
                 status: Arc::clone(&status),
                 cmd_tx,
                 logs_dir: logs_dir.clone(),
-                sidecar,
+                sidecar: layout.paths,
+                sidecar_archive: layout.archive,
+                sidecar_version_file: layout.version_file,
             });
             // 窗口在代码里创建：等待页之外还需注入 __DSH_DESK__ 桥。
             // WebView 硬化：仅允许 tauri:// 本地页与本机 sidecar 源，外链交系统浏览器；
@@ -176,6 +172,27 @@ async fn supervisor_task(
     let shell_log = RollingLog::new(&app.state::<AppState>().logs_dir, "shell", &date)
         .unwrap_or_else(|e| panic!("无法创建 shell 日志: {e}"));
     let _ = shell_log.append("壳启动");
+
+    // 方案 A：release 模式先就绪 sidecar 缓存（首启解压 sidecar-dist.tar，
+    // 进度镜像到等待页）；dev/`SIDECAR_ROOT` 模式（无资产）直接通过。
+    let (archive, version_file) = {
+        let state = app.state::<AppState>();
+        (state.sidecar_archive.clone(), state.sidecar_version_file.clone())
+    };
+    if let Err(e) = ensure_sidecar_ready(
+        &sidecar.root,
+        archive,
+        version_file,
+        Arc::clone(&status),
+        &shell_log,
+    )
+    .await
+    {
+        let _ = shell_log.append(&format!("sidecar 缓存就绪失败: {e}"));
+        set_status(&status, DesktopStatus::failed(e.clone()));
+        navigate_error(&window, &e);
+        return;
+    }
 
     // 首启初始化 desktop profile（幂等）：web-app 钉 sidecar 同版本、bridge 缺则补。
     // 失败直接进错误页——宿主版本错配会崩，不能让监督循环空转。
@@ -324,29 +341,107 @@ async fn initialize_profile(
     Ok(())
 }
 
-/// 解析 sidecar 根目录：`SIDECAR_ROOT` 环境变量优先（开发/冒烟），
-/// 否则开发构建回退源码目录、生产构建用打包的 `<资源目录>/sidecar-dist`。
-fn resolve_sidecar_root(app: &tauri::AppHandle) -> PathBuf {
-    let root = if let Some(root) = paths::sidecar_root() {
-        root
-    } else {
-        // 开发构建（cargo run / tauri dev）不打包 bundle.resources，resource_dir 里
-        // 可能是过期的残缺副本；直接用源码目录（CARGO_MANIFEST_DIR）下的 sidecar-dist。
-        #[cfg(debug_assertions)]
-        {
-            let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
-            if src.join("node").join("node.exe").exists() {
-                return src;
-            }
+/// sidecar 解析结果：`paths` 供监督任务与同步导入命令共用；
+/// release 模式额外携带打包资产（tar + 版本文件），首启先解压到缓存。
+struct SidecarLayout {
+    paths: SidecarPaths,
+    archive: Option<PathBuf>,
+    version_file: Option<PathBuf>,
+}
+
+/// 解析 sidecar 根目录：`SIDECAR_ROOT` 环境变量优先（开发/冒烟，无资产）；
+/// 否则开发构建用源码目录（无资产）、生产构建用「缓存目录 + 打包资产」
+/// （首启由 `ensure_sidecar_ready` 解压 sidecar-dist.tar）。
+fn resolve_sidecar_layout(app: &tauri::AppHandle) -> SidecarLayout {
+    let paths_for = |root: PathBuf| -> SidecarPaths {
+        let root = paths::deverbatim(&root);
+        let (node_exe, bin_js) = sidecar_paths(&root);
+        SidecarPaths {
+            pnpm_dir: root.join("pnpm"),
+            root,
+            node_exe,
+            bin_js,
         }
+    };
+    if let Some(root) = paths::sidecar_root() {
+        return SidecarLayout {
+            paths: paths_for(root),
+            archive: None,
+            version_file: None,
+        };
+    }
+    // 开发构建（cargo run / tauri dev）不打包 bundle.resources，resource_dir 里
+    // 可能是过期的残缺副本；直接用源码目录（CARGO_MANIFEST_DIR）下的 sidecar-dist。
+    #[cfg(debug_assertions)]
+    {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
+        if src.join("node").join("node.exe").exists() {
+            return SidecarLayout {
+                paths: paths_for(src),
+                archive: None,
+                version_file: None,
+            };
+        }
+    }
+    // 生产构建：缓存目录 + 打包资产。缓存放在 app_local_data_dir（用户可写），
+    // 安装目录只读也不影响首启解压。
+    let cache_dir = desk_core::sidecar_cache::sidecar_cache_override().unwrap_or_else(|| {
         app.path()
-            .resource_dir()
+            .app_local_data_dir()
             .map(|dir| dir.join("sidecar-dist"))
             .unwrap_or_default()
+    });
+    let resource = app.path().resource_dir().unwrap_or_default();
+    SidecarLayout {
+        paths: paths_for(cache_dir),
+        archive: Some(resource.join("sidecar-dist.tar")),
+        version_file: Some(resource.join("sidecar-version.json")),
+    }
+}
+
+/// 就绪 sidecar 缓存（方案 A）：release 模式把打包资产解压到缓存目录并把
+/// 进度镜像进状态（等待页轮询 desktop_state 显示进度条）；dev/`SIDECAR_ROOT`
+/// 模式（无资产）直接通过。
+async fn ensure_sidecar_ready(
+    root: &Path,
+    archive: Option<PathBuf>,
+    version_file: Option<PathBuf>,
+    status: Arc<Mutex<DesktopStatus>>,
+    shell_log: &RollingLog,
+) -> Result<(), String> {
+    let (Some(archive), Some(version_file)) = (archive, version_file) else {
+        return Ok(());
     };
-    // resource_dir 返回 \\?\ 前缀的 verbatim 路径，node 无法解析（EISDIR），
-    // 交给子进程前必须还原为常规形态。
-    paths::deverbatim(&root)
+    set_status(&status, DesktopStatus::preparing(0.0));
+    let _ = shell_log.append(&format!(
+        "解压 sidecar 打包资产 → {}（首启/版本变更）",
+        root.display()
+    ));
+    let cache_dir = root.to_owned();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<f64>();
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        desk_core::sidecar_cache::ensure_cached_sidecar(
+            &archive,
+            &version_file,
+            &cache_dir,
+            move |p| {
+                let _ = tx.send(p);
+            },
+        )
+    });
+    // 收进度（节流 1% 步进镜像到状态）；解压任务结束即通道关闭。
+    let mut last = -1.0f64;
+    while let Some(p) = rx.recv().await {
+        if p - last >= 0.01 || p >= 1.0 {
+            last = p;
+            set_status(&status, DesktopStatus::preparing(p));
+        }
+    }
+    let result = task
+        .await
+        .map_err(|e| format!("sidecar 解压任务异常: {e}"))?;
+    set_status(&status, DesktopStatus::preparing(1.0));
+    result.map(|_| ())
 }
 
 /// 由 sidecar 根目录推导 node.exe 与 dsh bin.js 的绝对路径。

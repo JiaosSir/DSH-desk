@@ -9,4 +9,5 @@ pub mod paths;
 pub mod ports;
 pub mod profile;
 pub mod ready;
+pub mod sidecar_cache;
 pub mod supervisor;

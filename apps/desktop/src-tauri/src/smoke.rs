@@ -24,7 +24,7 @@ pub fn run() -> ! {
 }
 
 async fn smoke() -> Result<(), String> {
-    let sidecar_root = resolve_sidecar_root();
+    let sidecar_root = resolve_sidecar_root().await?;
     let (node_exe, bin_js) = crate::sidecar_paths(&sidecar_root);
 
     // 初始化 desktop profile（与壳同逻辑：web-app 钉版，bridge 失败不阻塞）。
@@ -97,21 +97,41 @@ async fn smoke() -> Result<(), String> {
     Ok(())
 }
 
-/// 冒烟 sidecar 根目录：`SIDECAR_ROOT` 环境优先；否则源码目录（构建机/CI），
-/// 再否则 exe 旁（安装包布局）。返回值统一去过 verbatim（\\?\）前缀。
-fn resolve_sidecar_root() -> PathBuf {
-    let root = if let Some(root) = paths::sidecar_root() {
-        root
-    } else {
+/// 冒烟 sidecar 根目录：`SIDECAR_ROOT` 环境优先；否则源码目录（构建机/CI）；
+/// 再否则生产布局——exe 旁是 sidecar-dist.tar + sidecar-version.json，先解压到
+/// 缓存目录（`DSH_DESK_SIDECAR_CACHE` 可覆盖，默认 exe 旁 sidecar-dist）。
+/// 返回值统一去过 verbatim（\\?\）前缀。
+async fn resolve_sidecar_root() -> Result<PathBuf, String> {
+    if let Some(root) = paths::sidecar_root() {
+        return Ok(paths::deverbatim(&root));
+    }
+    // 开发构建（debug exe）用源码目录；release 冒烟强制走生产布局
+    // （exe 旁 tar → 解压到缓存），保证 CI 覆盖真实首启链路。
+    #[cfg(debug_assertions)]
+    {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
         if src.join("node").join("node.exe").exists() {
-            src
-        } else {
-            std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(|p| p.join("sidecar-dist")))
-                .unwrap_or_default()
+            return Ok(paths::deverbatim(&src));
         }
-    };
-    paths::deverbatim(&root)
+    }
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.to_owned()))
+        .unwrap_or_default();
+    let archive = exe_dir.join("sidecar-dist.tar");
+    let version_file = exe_dir.join("sidecar-version.json");
+    let cache = desk_core::sidecar_cache::sidecar_cache_override()
+        .unwrap_or_else(|| exe_dir.join("sidecar-dist"));
+    let cache_for_task = cache.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        desk_core::sidecar_cache::ensure_cached_sidecar(
+            &archive,
+            &version_file,
+            &cache_for_task,
+            |_| {},
+        )
+    })
+    .await
+    .map_err(|e| format!("sidecar 解压任务异常: {e}"))?;
+    result.map(|p| paths::deverbatim(&p))
 }

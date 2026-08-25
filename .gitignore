@@ -9,6 +9,9 @@ apps/desktop/src-tauri/gen/
 # Generated sidecar (reproducible via scripts/assemble-sidecar.mjs)
 apps/desktop/src-tauri/sidecar-dist/*
 !apps/desktop/src-tauri/sidecar-dist/README.md
+# 打包资产（assemble 生成，随 bundle.resources 进安装包）
+apps/desktop/src-tauri/sidecar-dist.tar
+apps/desktop/src-tauri/sidecar-version.json
 
 # Build artifacts of the bridge package
 packages/dsh-desk-bridge/lib/

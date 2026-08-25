@@ -19,6 +19,7 @@ import { join } from 'node:path'
 
 import {
   assemble,
+  assetsCurrent,
   buildPnpmShim,
   buildWorkspaceYaml,
   DSH_VERSION,
@@ -71,6 +72,28 @@ test('isCurrent 幂等判定', () => {
   }
 })
 
+test('assetsCurrent 打包资产幂等判定', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-assets-'))
+  const sidecar = join(dir, 'sidecar-dist')
+  try {
+    mkdirSync(sidecar, { recursive: true })
+    assert.equal(assetsCurrent(sidecar), false, '资产缺失时不是最新')
+    writeFileSync(join(dir, 'sidecar-dist.tar'), 'tar')
+    writeFileSync(
+      join(dir, 'sidecar-version.json'),
+      JSON.stringify({ node: NODE_VERSION, pnpm: PNPM_VERSION, dsh: DSH_VERSION }),
+    )
+    assert.equal(assetsCurrent(sidecar), true, 'tar 与版本文件一致时是最新')
+    writeFileSync(
+      join(dir, 'sidecar-version.json'),
+      JSON.stringify({ node: NODE_VERSION, pnpm: '9.9.9', dsh: DSH_VERSION }),
+    )
+    assert.equal(assetsCurrent(sidecar), false, '版本漂移时不是最新')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('assemble 全流程产物结构正确', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-sidecar-'))
   try {
@@ -107,6 +130,10 @@ test('assemble 全流程产物结构正确', async () => {
         mkdirSync(join(sidecarDir, 'node_modules', '@deepseek-ai', 'dsh'), { recursive: true })
         writeFileSync(join(sidecarDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), '{}')
       },
+      runTarCreate: (tarPath, baseDir) => {
+        calls.push(`tar:${baseDir}`)
+        writeFileSync(tarPath, 'fake-tar')
+      },
     })
 
     const out = join(dir, 'sidecar-dist')
@@ -129,6 +156,16 @@ test('assemble 全流程产物结构正确', async () => {
     assert.equal(version.pnpm, PNPM_VERSION)
     assert.equal(version.dsh, DSH_VERSION)
     assert.ok(typeof version.assembledAt === 'string')
+    // 打包资产：sidecar-dist.tar 与 sidecar-version.json（与 VERSION.json 同内容）
+    assert.ok(existsSync(join(dir, 'sidecar-dist.tar')), 'sidecar-dist.tar 应存在')
+    const versionCopy = JSON.parse(readFileSync(join(dir, 'sidecar-version.json'), 'utf8'))
+    assert.deepEqual(
+      { node: versionCopy.node, pnpm: versionCopy.pnpm, dsh: versionCopy.dsh },
+      { node: NODE_VERSION, pnpm: PNPM_VERSION, dsh: DSH_VERSION },
+      'sidecar-version.json 与 VERSION.json 版本一致',
+    )
+    assert.equal(assetsCurrent(out), true, '组装完成后打包资产应是最新')
+    assert.ok(calls.some((c) => c.startsWith('tar:')), '应调用 tar 生成打包资产')
     // package.json 收尾后不再含依赖声明
     const pkg = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
     assert.equal(pkg.dependencies, undefined)

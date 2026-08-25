@@ -11,7 +11,7 @@ use crate::{AppState, ShellCommand};
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopStatus {
-    /// 生命周期阶段：starting / waiting / running / failed。
+    /// 生命周期阶段：preparing / starting / waiting / running / failed。
     pub phase: &'static str,
     /// 就绪后的 Web UI 地址。
     pub url: Option<String>,
@@ -19,6 +19,8 @@ pub struct DesktopStatus {
     pub port: Option<u16>,
     /// 失败原因（failed 阶段）。
     pub error: Option<String>,
+    /// 准备阶段进度（0.0..=1.0；仅 preparing 阶段有值，等待页据此画进度条）。
+    pub progress: Option<f64>,
 }
 
 impl DesktopStatus {
@@ -28,6 +30,18 @@ impl DesktopStatus {
             url: None,
             port: None,
             error: None,
+            progress: None,
+        }
+    }
+
+    /// sidecar 缓存解压（方案 A 首启）：`progress` 为 0.0..=1.0。
+    pub fn preparing(progress: f64) -> Self {
+        Self {
+            phase: "preparing",
+            url: None,
+            port: None,
+            error: None,
+            progress: Some(progress),
         }
     }
 
@@ -37,6 +51,7 @@ impl DesktopStatus {
             url: None,
             port: Some(port),
             error: None,
+            progress: None,
         }
     }
 
@@ -46,6 +61,7 @@ impl DesktopStatus {
             url: Some(url),
             port: None,
             error: None,
+            progress: None,
         }
     }
 
@@ -55,6 +71,7 @@ impl DesktopStatus {
             url: None,
             port: None,
             error: Some(error),
+            progress: None,
         }
     }
 }
@@ -168,6 +185,11 @@ pub fn desktop_sync_list() -> Vec<String> {
 #[tauri::command]
 pub async fn desktop_sync_add(pkg: String, state: State<'_, AppState>) -> Result<(), String> {
     let sidecar = state.sidecar.clone();
+    // release 模式首启时缓存可能尚未解压（desktop_sync_add 只在 Web UI 就绪后可达，
+    // 防御性校验：sidecar 未就绪时给出明确错误而不是 node 启动失败）。
+    if !sidecar.node_exe.exists() {
+        return Err("宿主环境未就绪（sidecar 尚未就绪，请稍后重试）".to_owned());
+    }
     desk_core::profile::add_profile_plugin(
         &desk_core::profile::PluginAddOptions {
             profile_dir: desk_core::paths::profile_dir(),
