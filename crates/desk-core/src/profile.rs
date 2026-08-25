@@ -150,12 +150,16 @@ async fn run_add_parts(
     let sep = if cfg!(windows) { ";" } else { ":" };
     let path = format!("{}{sep}{}", pnpm_dir.display(), inherited.to_string_lossy());
 
-    let output = tokio::process::Command::new(node_exe)
-        .arg(bin_js)
+    let mut cmd = tokio::process::Command::new(node_exe);
+    cmd.arg(bin_js)
         .args(["plugin", "--profile", profile_name])
         .args(["add", pkg])
         .env("PATH", path)
-        .env("DSH_TELEMETRY_DISABLED", "1")
+        .env("DSH_TELEMETRY_DISABLED", "1");
+    // GUI 壳下不弹控制台窗口（同 supervisor 的 CREATE_NO_WINDOW）。
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000);
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("dsh plugin add 启动失败: {e}"))?;

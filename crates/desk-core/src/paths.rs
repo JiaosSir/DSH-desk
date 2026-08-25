@@ -44,6 +44,21 @@ pub fn sidecar_root() -> Option<PathBuf> {
     std::env::var_os("SIDECAR_ROOT").map(PathBuf::from)
 }
 
+/// 去掉 Windows verbatim 前缀（`\\?\`）。
+///
+/// Tauri 的 `resource_dir()` 在 Windows 上返回 `\\?\C:\...` 形态的路径；
+/// node 用这种路径解析入口脚本时会把盘符段（如 `D:`）当文件 lstat，
+/// 触发 `EISDIR` 直接崩溃（2026-08-25 实测：sidecar 秒退、监督器三连重试）。
+/// 壳侧所有交给子进程的路径（node.exe / bin.js / pnpm 目录）都必须先过这里。
+///
+/// 实现用社区标准做法 `dunce::simplified`：qwen-code 桌面端在完全相同的
+/// 架构下（Tauri 壳 + 自带 node 运行时）踩过同一坑，修复即换 dunce
+/// （QwenLM/qwen-code#8936，起因 issue #8929）。`\\?\UNC\server\share`
+/// 还原为 `\\server\share`；其余平台原样返回。
+pub fn deverbatim(path: &std::path::Path) -> PathBuf {
+    dunce::simplified(path).to_path_buf()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,6 +100,23 @@ mod tests {
         assert_eq!(
             home.join("desktop").join("logs"),
             PathBuf::from(r"D:\data\dsh\desktop\logs")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 去_verbatim_前缀() {
+        assert_eq!(
+            deverbatim(std::path::Path::new(r"\\?\D:\app\sidecar-dist")),
+            PathBuf::from(r"D:\app\sidecar-dist")
+        );
+        assert_eq!(
+            deverbatim(std::path::Path::new(r"\\?\UNC\server\share\dir")),
+            PathBuf::from(r"\\server\share\dir")
+        );
+        assert_eq!(
+            deverbatim(std::path::Path::new(r"D:\plain\path")),
+            PathBuf::from(r"D:\plain\path")
         );
     }
 }

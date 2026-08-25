@@ -98,17 +98,20 @@ async fn smoke() -> Result<(), String> {
 }
 
 /// 冒烟 sidecar 根目录：`SIDECAR_ROOT` 环境优先；否则源码目录（构建机/CI），
-/// 再否则 exe 旁（安装包布局）。
+/// 再否则 exe 旁（安装包布局）。返回值统一去过 verbatim（\\?\）前缀。
 fn resolve_sidecar_root() -> PathBuf {
-    if let Some(root) = paths::sidecar_root() {
-        return root;
-    }
-    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
-    if src.join("node").join("node.exe").exists() {
-        return src;
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("sidecar-dist")))
-        .unwrap_or_default()
+    let root = if let Some(root) = paths::sidecar_root() {
+        root
+    } else {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
+        if src.join("node").join("node.exe").exists() {
+            src
+        } else {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.join("sidecar-dist")))
+                .unwrap_or_default()
+        }
+    };
+    paths::deverbatim(&root)
 }

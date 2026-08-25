@@ -312,6 +312,10 @@ impl Supervisor {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // GUI 壳下 node.exe（console 子系统）默认会弹独立控制台窗口；
+        // CREATE_NO_WINDOW 让 sidecar 完全隐形，输出仍走管道。
+        #[cfg(windows)]
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         let mut child = cmd.spawn().map_err(|e| format!("sidecar 启动失败: {e}"))?;
         let stdout = child.stdout.take().expect("已配置 piped 的 stdout");
         let stderr = child.stderr.take().expect("已配置 piped 的 stderr");
@@ -513,12 +517,13 @@ mod tests {
         }
         let port = crate::ports::pick_free_port().expect("空闲端口");
         // 打印就绪行后保持静默 1 秒再退出：就绪超时若仍计时，
-        // 会在 300ms 处返回 Exited{code:None}（误杀）。
+        // 会在 3s 处返回 Exited{code:None}（误杀）；真实退出在 1s 处（code 0）。
+        // ready_timeout 不能设得过小，否则 node 冷启动超过它会在就绪前误超时。
         let script = format!(
             "console.log('dsh web: http://127.0.0.1:{port}'); setTimeout(()=>process.exit(0), 1000)"
         );
         let mut sup = Supervisor::new(SupervisorOptions {
-            ready_timeout: Duration::from_millis(300),
+            ready_timeout: Duration::from_secs(3),
             max_attempts: 3,
             backoff: vec![Duration::from_millis(20)],
         });
@@ -526,7 +531,7 @@ mod tests {
             .await
             .expect("start 成功");
         assert!(matches!(sup.wait().await, SupervisorEvent::Ready { .. }));
-        // 应等到真实退出（约 1s 后，code 0），而不是 300ms 的超时误杀。
+        // 应等到真实退出（约 1s 后，code 0），而不是 3s 的超时误杀。
         let evt = sup.wait().await;
         assert_eq!(
             evt,

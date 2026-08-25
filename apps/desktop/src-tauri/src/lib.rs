@@ -115,7 +115,13 @@ pub fn run() {
             .center()
             .initialization_script(bridge::BRIDGE_SCRIPT)
             .on_navigation(|url| {
-                if url.scheme() == "tauri" || url.host_str() == Some("127.0.0.1") {
+                // 白名单：内嵌资产（tauri://localhost 与 Tauri 2 Windows 生产协议
+                // http://tauri.localhost 承载等待页/错误页）+ 本机 sidecar 源。
+                // 其余一律外链移交系统浏览器并阻断（规格 §6.6 外链转移）。
+                let allowed = url.scheme() == "tauri"
+                    || url.host_str() == Some("127.0.0.1")
+                    || url.host_str() == Some("tauri.localhost");
+                if allowed {
                     return true;
                 }
                 let _ = open::that(url.as_str());
@@ -321,22 +327,26 @@ async fn initialize_profile(
 /// 解析 sidecar 根目录：`SIDECAR_ROOT` 环境变量优先（开发/冒烟），
 /// 否则开发构建回退源码目录、生产构建用打包的 `<资源目录>/sidecar-dist`。
 fn resolve_sidecar_root(app: &tauri::AppHandle) -> PathBuf {
-    if let Some(root) = paths::sidecar_root() {
-        return root;
-    }
-    // 开发构建（cargo run / tauri dev）不打包 bundle.resources，resource_dir 里
-    // 可能是过期的残缺副本；直接用源码目录（CARGO_MANIFEST_DIR）下的 sidecar-dist。
-    #[cfg(debug_assertions)]
-    {
-        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
-        if src.join("node").join("node.exe").exists() {
-            return src;
+    let root = if let Some(root) = paths::sidecar_root() {
+        root
+    } else {
+        // 开发构建（cargo run / tauri dev）不打包 bundle.resources，resource_dir 里
+        // 可能是过期的残缺副本；直接用源码目录（CARGO_MANIFEST_DIR）下的 sidecar-dist。
+        #[cfg(debug_assertions)]
+        {
+            let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
+            if src.join("node").join("node.exe").exists() {
+                return src;
+            }
         }
-    }
-    app.path()
-        .resource_dir()
-        .map(|dir| dir.join("sidecar-dist"))
-        .unwrap_or_default()
+        app.path()
+            .resource_dir()
+            .map(|dir| dir.join("sidecar-dist"))
+            .unwrap_or_default()
+    };
+    // resource_dir 返回 \\?\ 前缀的 verbatim 路径，node 无法解析（EISDIR），
+    // 交给子进程前必须还原为常规形态。
+    paths::deverbatim(&root)
 }
 
 /// 由 sidecar 根目录推导 node.exe 与 dsh bin.js 的绝对路径。
