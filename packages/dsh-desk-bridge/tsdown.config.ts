@@ -11,7 +11,7 @@
 import { defineConfig } from 'tsdown'
 
 /** 插件 id，烙印进 __ModuleLoader__.load 交接调用。 */
-const ID = '@JiaosSir/dsh-desk-bridge'
+const ID = '@cjiaojiao/dsh-desk-bridge'
 
 /** 平台种子模块（上游 packages/client/web/src/platform.ts）。 */
 const PLATFORM_MODULES = [

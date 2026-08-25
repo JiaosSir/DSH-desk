@@ -1,7 +1,7 @@
 /**
  * 「桌面」设置区：自启开关、快捷键展示、工作区选择、重启宿主、打开日志、查看最新版。
  * 全部经 DeskBridge 调壳侧 IPC；无桥时整个设置区不注册（等价纯浏览器）。
- * @module @JiaosSir/dsh-desk-bridge/client/settings-panel
+ * @module @cjiaojiao/dsh-desk-bridge/client/settings-panel
  */
 
 import { useEffect, useState } from 'react'

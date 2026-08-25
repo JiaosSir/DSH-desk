@@ -3,8 +3,8 @@
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "scripts": {
-    "bridge:build": "pnpm --filter @JiaosSir/dsh-desk-bridge build",
-    "bridge:test": "pnpm --filter @JiaosSir/dsh-desk-bridge test",
+    "bridge:build": "pnpm --filter @cjiaojiao/dsh-desk-bridge build",
+    "bridge:test": "pnpm --filter @cjiaojiao/dsh-desk-bridge test",
     "test:scripts": "node --test \"scripts/*.test.mjs\"",
     "sidecar:assemble": "node scripts/assemble-sidecar.mjs",
     "desktop:dev": "pnpm --dir apps/desktop tauri dev",

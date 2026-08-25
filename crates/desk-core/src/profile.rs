@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 /// desktop profile 必装的两层：web-app（钉 harness 版本）与桥接插件。
 pub const WEB_APP_PACKAGE: &str = "@deepseek-ai/dsh-web-app";
-pub const BRIDGE_PACKAGE: &str = "@JiaosSir/dsh-desk-bridge";
+pub const BRIDGE_PACKAGE: &str = "@cjiaojiao/dsh-desk-bridge";
 
 /// 初始化参数：所有外部路径与版本由壳注入，便于离线单测（桩 node + 桩 bin.js）。
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ pub struct InitOptions {
     pub pnpm_dir: PathBuf,
     /// 钉死的 harness 版本（与 sidecar 一致），用于 pin web-app。
     pub dsh_version: String,
-    /// bridge 安装 spec（env `DSH_DESK_BRIDGE_SPEC` 优先，缺省 `@JiaosSir/dsh-desk-bridge@<壳版本>`）。
+    /// bridge 安装 spec（env `DSH_DESK_BRIDGE_SPEC` 优先，缺省 `@cjiaojiao/dsh-desk-bridge@<壳版本>`）。
     pub bridge_spec: String,
 }
 
@@ -291,7 +291,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             bin_js: stub.to_owned(),
             pnpm_dir: profile_dir.join("pnpm-stub"),
             dsh_version: "0.1.0-rc.8".into(),
-            bridge_spec: "@JiaosSir/dsh-desk-bridge@0.1.0".into(),
+            bridge_spec: "@cjiaojiao/dsh-desk-bridge@0.1.0".into(),
         }
     }
 
@@ -346,7 +346,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             outcome.ran_adds,
             vec![
                 "@deepseek-ai/dsh-web-app@FAILONCE".to_string(),
-                "@JiaosSir/dsh-desk-bridge@0.1.0".to_string(),
+                "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
             ]
         );
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
@@ -425,7 +425,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             outcome.ran_adds,
             vec![
                 "@deepseek-ai/dsh-web-app@0.1.0-rc.8".to_string(),
-                "@JiaosSir/dsh-desk-bridge@0.1.0".to_string(),
+                "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
             ]
         );
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
@@ -434,7 +434,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             lines,
             vec![
                 "desktop @deepseek-ai/dsh-web-app@0.1.0-rc.8",
-                "desktop @JiaosSir/dsh-desk-bridge@0.1.0",
+                "desktop @cjiaojiao/dsh-desk-bridge@0.1.0",
             ]
         );
     }
@@ -449,7 +449,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         fs::create_dir_all(&profile).unwrap();
         fs::write(
             profile.join("package.json"),
-            r#"{"dependencies":{"@deepseek-ai/dsh-web-app":"0.1.0-rc.8","@JiaosSir/dsh-desk-bridge":"0.1.0"}}"#,
+            r#"{"dependencies":{"@deepseek-ai/dsh-web-app":"0.1.0-rc.8","@cjiaojiao/dsh-desk-bridge":"0.1.0"}}"#,
         )
         .unwrap();
         let stub = write_stub(&tmp);
@@ -470,7 +470,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         fs::create_dir_all(&profile).unwrap();
         fs::write(
             profile.join("package.json"),
-            r#"{"dependencies":{"@JiaosSir/dsh-desk-bridge":"0.1.0"}}"#,
+            r#"{"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0"}}"#,
         )
         .unwrap();
         let stub = write_stub(&tmp);
@@ -498,7 +498,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         .unwrap();
         let stub = write_stub(&tmp);
         let mut opts = init_options(&profile, &stub);
-        opts.bridge_spec = "@JiaosSir/dsh-desk-bridge@FAILME".into();
+        opts.bridge_spec = "@cjiaojiao/dsh-desk-bridge@FAILME".into();
         let outcome = ensure_profile_init(&opts).await.unwrap();
         assert!(outcome.ran_adds.is_empty());
         assert_eq!(outcome.warnings.len(), 1);
@@ -525,7 +525,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             outcome.ran_adds,
             vec![
                 "@deepseek-ai/dsh-web-app@0.1.0-rc.8".to_string(),
-                "@JiaosSir/dsh-desk-bridge@0.1.0".to_string(),
+                "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
             ]
         );
     }

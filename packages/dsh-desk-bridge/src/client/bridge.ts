@@ -4,7 +4,7 @@
  * 一一对应；壳经 initialization script 把具体对象注入为
  * window.__DSH_DESK__。纯浏览器里该全局对象不存在，所有调用方必须经
  * detectBridge 优雅退化。
- * @module @JiaosSir/dsh-desk-bridge/client/bridge
+ * @module @cjiaojiao/dsh-desk-bridge/client/bridge
  */
 
 /** Tauri 壳注入的桌面桥协议。 */

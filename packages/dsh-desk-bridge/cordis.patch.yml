@@ -8,4 +8,4 @@
 # 加载进 Web GUI。
 - insert:
     - id: desk-bridge
-      name: '@JiaosSir/dsh-desk-bridge'
+      name: '@cjiaojiao/dsh-desk-bridge'

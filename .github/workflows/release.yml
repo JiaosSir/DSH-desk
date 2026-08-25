@@ -22,7 +22,7 @@ jobs:
       - name: 桥包版本与 tag 对齐（D7 同号策略）
         run: npm pkg set version="${GITHUB_REF_NAME#v}" --workspace packages/dsh-desk-bridge
       - run: pnpm bridge:build
-      - run: pnpm --filter @JiaosSir/dsh-desk-bridge publish --access public --no-git-checks
+      - run: pnpm --filter @cjiaojiao/dsh-desk-bridge publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

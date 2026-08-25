@@ -5,7 +5,7 @@ DeepSeek Harness Web UI 的 Windows 桌面分发：**用户不装 Node、不用�
 - 壳：Tauri 2（Rust）+ 系统 WebView2，不含前端；
 - 宿主：harness 以 **sidecar** 随包分发（自带 Node + pnpm standalone + 钉死版本的 `@deepseek-ai/dsh` 依赖树）；
 - 复用：WebView 直接加载 sidecar 的 `http://127.0.0.1:<port>`，现有 Web UI、客户端插件、Slot/主题生态 100% 复用；
-- 桥接：npm 外部插件 `@JiaosSir/dsh-desk-bridge` 只做特性检测 + Tauri IPC 桥（`window.__DSH_DESK__`），浏览器里自动退化。
+- 桥接：npm 外部插件 `@cjiaojiao/dsh-desk-bridge` 只做特性检测 + Tauri IPC 桥（`window.__DSH_DESK__`），浏览器里自动退化。
 
 设计规格：[`docs/specs/2026-08-19-desktop-shell-design.md`](specs/2026-08-19-desktop-shell-design.md)；实施计划：[`docs/plans/2026-08-19-implementation-plan.md`](plans/2026-08-19-implementation-plan.md)。
 
@@ -76,8 +76,8 @@ node scripts/assemble-sidecar.mjs --force   # 强制重建
 $side = "D:\project\open-source\DSH-desk\apps\desktop\src-tauri\sidecar-dist"
 $env:Path = "$side\pnpm;" + $env:Path
 
-# 注意必须钉版本：npm 的 latest 标签是废弃的 0.0.1-rc.1（依赖已下架的包）
-& "$side\node\node.exe" "$side\node_modules\@deepseek-ai\dsh\lib\bin.js" plugin --profile desktop add "@deepseek-ai/dsh-web-app@0.1.0-rc.8"
+# 注意必须钉版本（与 scripts/assemble-sidecar.mjs 的 DSH_VERSION 一致）
+& "$side\node\node.exe" "$side\node_modules\@deepseek-ai\dsh\lib\bin.js" plugin --profile desktop add "@deepseek-ai/dsh-web-app@0.1.1-rc.2"
 ```
 
 初始化后 `~/.dsh/profiles/desktop/pnpm-workspace.yaml` 需要 `allowBuilds`（koffi/node-pty），否则 pnpm 以非零码退出。最终 profile 的 `package.json` 应含：
@@ -105,7 +105,7 @@ D:\project\open-source\DSH-desk\target\debug\dsh-desk.exe
 ## 测试
 
 ```powershell
-cargo test -p desk-core     # 监督状态机/就绪解析/路径/日志（17 例）
+cargo test -p desk-core     # 监督状态机/就绪解析/路径/日志（37 例）
 cargo clippy -p desk-core -p dsh-desk --all-targets -- -D warnings
 pnpm bridge:test               # 桥接插件退化契约（vitest，jsdom）
 pnpm bridge:build              # lib/index.js（宿主）+ lib/client.js（浏览器 IIFE）
@@ -136,7 +136,9 @@ pnpm --dir apps/desktop tauri build --bundles nsis       # NSIS 每用户安装�
 ## 常见问题（开发机实测）
 
 - **cargo 报 `SEC_E_NO_CREDENTIALS` / npm 下载极慢**：schannel 系工具（cargo/curl）在某些网络环境不可用；Node 系（pnpm/脚本）走 OpenSSL 不受影响。cargo 配 rsproxy 镜像 + 完整访问权限即可；仓库根 `.npmrc` 已放宽 pnpm 下载超时。
-- **`dsh plugin add` 失败 404 `dsh-frontend`**：npm `latest` 标签是废弃版本，必须显式钉 `@0.1.0-rc.8`（见上）。
+- **`link.exe not found`**：默认 MSVC 工具链缺 C++ 链接器。装 VS 2022 Build Tools（「使用 C++ 的桌面开发」工作负载）并 `rustup default stable-x86_64-pc-windows-msvc` 即可。详见 `docs/rust-install.zh.md`。
+- **`dlltool.exe not found`**：切到 `x86_64-pc-windows-gnu` 后的连环坑——rustup 自带 MinGW 是精简版（缺 `as.exe`），`windows-sys` 的 raw-dylib 无法生成导入库。本项目只支持 MSVC 工具链，切回即可。详见 `docs/rust-install.zh.md`。
+- **`dsh plugin add` 失败 404 `dsh-frontend`**：历史版本里 npm `latest` 曾指向废弃版本；务必显式钉版本（与 `DSH_VERSION` 一致，当前 `@0.1.1-rc.2`，见上）。
 - **pnpm 报 `ERR_PNPM_IGNORED_BUILDS`**：profile 与 sidecar 的 `pnpm-workspace.yaml` 都要有 `allowBuilds`（koffi/node-pty）；koffi 的二进制经 optional 依赖 `@koromix/koffi-win32-x64` 分发，其 install 脚本检测到二进制后自动跳过编译，无需本机 C++ 工具链。
 - **组装脚本缺 `--no-optional` 曾致宿主启动失败**：sharp/koffi 的平台二进制都走 optionalDependencies，安装必须保留 optional。
 - **tauri dev 反复重建**：watcher 会把 330MB 的 `sidecar-dist` 当源码监控；开发期建议用方式 B（直接跑 exe），watcher 忽略配置待优化。
