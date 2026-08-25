@@ -53,8 +53,9 @@ pub fn sidecar_root() -> Option<PathBuf> {
 ///
 /// 实现用社区标准做法 `dunce::simplified`：qwen-code 桌面端在完全相同的
 /// 架构下（Tauri 壳 + 自带 node 运行时）踩过同一坑，修复即换 dunce
-/// （QwenLM/qwen-code#8936，起因 issue #8929）。`\\?\UNC\server\share`
-/// 还原为 `\\server\share`；其余平台原样返回。
+/// （QwenLM/qwen-code#8936，起因 issue #8929）。盘符形态（`\\?\D:\...`）还原为
+/// `D:\...`；扩展长度 UNC（`\\?\UNC\...`）按 dunce 设计保持原样（壳的
+/// resource_dir 不会产生该形态）；其余平台原样返回。
 pub fn deverbatim(path: &std::path::Path) -> PathBuf {
     dunce::simplified(path).to_path_buf()
 }
@@ -106,17 +107,21 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn 去_verbatim_前缀() {
+        // 壳的实际场景：resource_dir 返回 \\?\C:\... 的盘符形态，dunce 会还原。
         assert_eq!(
             deverbatim(std::path::Path::new(r"\\?\D:\app\sidecar-dist")),
             PathBuf::from(r"D:\app\sidecar-dist")
         );
         assert_eq!(
-            deverbatim(std::path::Path::new(r"\\?\UNC\server\share\dir")),
-            PathBuf::from(r"\\server\share\dir")
-        );
-        assert_eq!(
             deverbatim(std::path::Path::new(r"D:\plain\path")),
             PathBuf::from(r"D:\plain\path")
+        );
+        // 扩展长度 UNC（\\?\UNC\server\share）dunce 有意保持原样
+        // （is_safe_to_strip_unc 只接受 VerbatimDisk；文档："leaves UNC paths as-is"）。
+        // 壳的 resource_dir 不会产生该形态，此断言只是固化行为约定。
+        assert_eq!(
+            deverbatim(std::path::Path::new(r"\\?\UNC\server\share\dir")),
+            PathBuf::from(r"\\?\UNC\server\share\dir")
         );
     }
 }
