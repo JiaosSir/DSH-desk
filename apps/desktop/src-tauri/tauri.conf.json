@@ -19,7 +19,11 @@
     "resources": ["sidecar-dist"],
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
-      "nsis": { "installMode": "currentUser" }
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "template": "nsis/installer.nsi"
+      }
     }
   }
 }

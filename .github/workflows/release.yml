@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm bridge:test
+      - name: 桥包版本与 tag 对齐（D7 同号策略）
+        run: npm pkg set version="${GITHUB_REF_NAME#v}" --workspace packages/dsh-desk-bridge
+      - run: pnpm bridge:build
+      - run: pnpm --filter @JiaosSir/dsh-desk-bridge publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  build-release:
+    needs: publish-bridge
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+      - run: pnpm install --frozen-lockfile
+      - name: 版本号由 tag 派生（tauri.conf + 各 workspace 包）
+        run: |
+          node -e "const fs=require('fs');const p='apps/desktop/src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')"
+          npm pkg set version="${GITHUB_REF_NAME#v}" --workspaces
+      - run: pnpm sidecar:assemble          # sidecar 组装（不含 bridge；bridge 首启经 npm 钉版装入 profile，D7）
+      - run: pnpm --dir apps/desktop tauri build --bundles nsis
+      - run: node scripts/build-portable.mjs
+      - run: node scripts/smoke-desktop.mjs # 冒烟（DSH_HOME=临时目录）
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/bundle/nsis/*-setup.exe
+            dist-portable/*.zip

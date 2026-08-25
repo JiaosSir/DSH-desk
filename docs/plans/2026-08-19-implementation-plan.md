@@ -720,13 +720,13 @@ pub fn compute_sync_diff(web_dir: &Path, desktop_dir: &Path) -> SyncDiff;
 
 ### 任务 4.1：前期 spike（实现依据，产出记入代码注释）
 
-- [ ] **Step 1** 从 `~/.dsh/profiles/web/node_modules/@linxin666/dsh-ssh`（含 `src/`）研读并记录：宿主半部注册 webserver 路由的确切 API（`@deepseek-ai/dsh-host-webserver` 导出）与设置区 Slot 注册 API（`@deepseek-ai/dsh-settings` 的 `installSettingsSection` 用法）；把结论写进 `packages/dsh-desk-bridge/docs/spike-notes.md`。
+- [x] **Step 1** 从 `~/.dsh/profiles/web/node_modules/@linxin666/dsh-ssh`（含 `src/`）研读并记录：宿主半部注册 webserver 路由的确切 API（`@deepseek-ai/dsh-host-webserver` 导出）与设置区 Slot 注册 API（`@deepseek-ai/dsh-settings` 的 `installSettingsSection` 用法）；把结论写进 `packages/dsh-desk-bridge/docs/spike-notes.md`。
 
-- [ ] **Step 2** 用 `dsh-ssh` 同款 devDeps 把 bridge 的宿主半部改造成真实路由注册（先注册一个 `GET /api/desktop/health` 返回 `{ ok: true }`，client 半部 fetch 它在面板显示——作为端到端最小闭环）。
+- [x] **Step 2** 用 `dsh-ssh` 同款 devDeps 把 bridge 的宿主半部改造成真实路由注册（先注册一个 `GET /api/desktop/health` 返回 `{ ok: true }`，client 半部 fetch 它在面板显示——作为端到端最小闭环）。
 
 ### 任务 4.2：宿主半部（审批旁听 + SSE）
 
-- [ ] **Step 1** `src/index.ts` 实现（F8 语义：**旁听者永远 `next()` 委托，绝不产生审批结果**——信任模型零触碰，这是不变式 3 的落实）：
+- [x] **Step 1** `src/index.ts` 实现（F8 语义：**旁听者永远 `next()` 委托，绝不产生审批结果**——信任模型零触碰，这是不变式 3 的落实）：
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
@@ -745,13 +745,13 @@ export function apply(ctx: Context): void {
 }
 ```
 
-- [ ] **Step 2** 单测（vitest + cordis 测试上下文，参照 dsh-ssh 测试）：注入 mock approval/request 事件 → SSE 订阅者收到推送且 `next` 被调用；断连清理。
+- [x] **Step 2** 单测（vitest + cordis 测试上下文，参照 dsh-ssh 测试）：注入 mock approval/request 事件 → SSE 订阅者收到推送且 `next` 被调用；断连清理。
 
 ### 任务 4.3：client 半部（设置区 + 通知镜像 + path-picker 桥）
 
-- [ ] **Step 1** `src/client/index.ts`：`detectBridge()` 为 null → 直接返回（无 Slot、无订阅，等价纯浏览器）；否则注册设置区（"桌面"）与通知订阅。
+- [x] **Step 1** `src/client/index.ts`：`detectBridge()` 为 null → 直接返回（无 Slot、无订阅，等价纯浏览器）；否则注册设置区（"桌面"）与通知订阅。
 
-- [ ] **Step 2** 设置区（`settings-panel.tsx`，zh 文案为主、en 镜像）：
+- [x] **Step 2** 设置区（`settings-panel.tsx`，zh 文案为主、en 镜像）：
   - 开机自启开关 → `setAutostart/getAutostart`（壳侧 tauri-plugin-autostart）
   - 全局快捷键当前值展示（读 config.json，只读；改键留 v1.5，D11）
   - 「重启宿主」→ `restartHost()`（壳侧 `Supervisor::restart`；提示"新装插件下次启动生效"）
@@ -759,25 +759,25 @@ export function apply(ctx: Context): void {
   - 「查看最新版」→ `openReleases()`（系统浏览器开 GitHub Releases——规格 §9：用户主动触发）
   - web→desktop 插件同步：列 `compute_sync_diff`（壳算，经 IPC 取回），勾选后逐包 `desktop_sync_add(pkg)`（壳跑 `dsh plugin --profile desktop add`），完成后提示重启宿主
 
-- [ ] **Step 3** 通知镜像（`notifications.ts`）：订阅 `/api/desktop/events` SSE → 收到审批事件 → `notify(title, body)`（壳侧 tauri-plugin-notification，点通知聚焦窗口）；审批动作永远留在 Web UI（规格决策 8）。
+- [x] **Step 3** 通知镜像（`notifications.ts`）：订阅 `/api/desktop/events` SSE → 收到审批事件 → `notify(title, body)`（壳侧 tauri-plugin-notification，点通知聚焦窗口）；审批动作永远留在 Web UI（规格决策 8）。
 
-- [ ] **Step 4** path-picker 桥：client 提供 `pickFolder()` 封装供引导页与 UI 内 path-picker 使用（首次引导 b 步经此写工作区）。
+- [x] **Step 4** path-picker 桥（已按 d7dff7e 决定移除 workspace 特性，本步不再适用）。
 
-- [ ] **Step 5** 退化测试矩阵（vitest + jsdom，mock `__ModuleLoader__`）：无桥环境不注册 Slot、不建 SSE、`detectBridge()===null`；有桥环境各按钮调对应 invoke 一次。
+- [x] **Step 5** 退化测试矩阵（vitest + jsdom，mock `__ModuleLoader__`）：无桥环境不注册 Slot、不建 SSE、`detectBridge()===null`；有桥环境各按钮调对应 invoke 一次。
 
 ### 任务 4.4：壳侧配套（快捷键/自启/通知/外链）
 
-- [ ] **Step 1** `shortcuts.rs`：`tauri-plugin-global-shortcut` 注册 `Ctrl+Alt+D`（读 config.json 的 `hotkey`，非法回退缺省）→ toggle 窗口可见性。
+- [x] **Step 1** `shortcuts.rs`：`tauri-plugin-global-shortcut` 注册 `Ctrl+Alt+D`（读 config.json 的 `hotkey`，非法回退缺省）→ toggle 窗口可见性。
 
-- [ ] **Step 2** `commands.rs` 扩容：`desktop_set_autostart/get_autostart`（autostart 插件）、`desktop_notify`（notification 插件）、`desktop_open_releases`（opener 开 `https://github.com/<owner>/DSH-desk/releases`，owner 实现期定）、`desktop_sync_add`、`desktop_sync_list`、`desktop_restart_host`。
+- [x] **Step 2** `commands.rs` 扩容：`desktop_set_autostart/get_autostart`（autostart 插件）、`desktop_notify`（notification 插件）、`desktop_open_releases`（opener 开 `https://github.com/<owner>/DSH-desk/releases`，owner 实现期定）、`desktop_sync_add`、`desktop_sync_list`、`desktop_restart_host`（实现为 `desktop_retry`）。
 
-- [ ] **Step 3** WebView 硬化：`on_navigation` 拒绝非 `http://127.0.0.1:<当前port>` 的导航并移交 opener（外链走系统浏览器）；release 构建禁 devtools（`devtools: false` 生产配置）。
+- [x] **Step 3** WebView 硬化：`on_navigation` 拒绝非 `http://127.0.0.1:<当前port>` 的导航并移交 opener（外链走系统浏览器）；release 构建禁 devtools（`devtools: false` 生产配置）。
 
 ### 任务 4.5：开发闭环（link: 装入 + 重启宿主验证）
 
-- [ ] **Step 1** 以 `dsh plugin --profile desktop add link:<bridge 包绝对路径>` 装入开发 profile（F4 锚定语义：绝对路径原样转发 pnpm）。
+- [x] **Step 1** 以 `dsh plugin --profile desktop add link:<bridge 包绝对路径>` 装入开发 profile（F4 锚定语义：绝对路径原样转发 pnpm）。
 
-- [ ] **Step 2** 手工验证清单：设置区出现"桌面"；审批触发时系统通知出现；文件夹选择弹原生对话框；Ctrl+Alt+D 唤起/隐藏；纯浏览器开同 URL 无桌面区、无报错。
+- [x] **Step 2** 手工验证清单：设置区出现"桌面"；审批触发时系统通知出现；Ctrl+Alt+D 唤起/隐藏；纯浏览器开同 URL 无桌面区、无报错（文件夹选择随 workspace 特性一并移除）。
 
 ### 阶段 4 验收标准
 
@@ -812,15 +812,15 @@ export function apply(ctx: Context): void {
 
 ### 任务 5.1：打包产物
 
-- [ ] **Step 1** `tauri.conf.json` 补全 bundle 段（D12）：NSIS `installMode: currentUser`、`displayLanguageSelector: false`、安装目录缺省 `%LOCALAPPDATA%\Programs\DSH-desk`；`webviewInstallMode: downloadBootstrapper`（WebView2 缺失时自动引导安装，规格 §8.2）。
+- [x] **Step 1** `tauri.conf.json` 补全 bundle 段（D12）：NSIS `installMode: currentUser`、`displayLanguageSelector: false`、安装目录缺省 `%LOCALAPPDATA%\Programs\DSH-desk`（经 `nsis/installer.nsi` 定制模板，基于 Tauri 2.11.5 官方模板改 1 行）；`webviewInstallMode: downloadBootstrapper`（WebView2 缺失时自动引导安装，规格 §8.2）。
 
-- [ ] **Step 2** `scripts/build-portable.mjs`：从 `target/release/` 收集 `dsh-desk.exe` + `resources/` 目录 → 打 zip（根目录名 `DSH-desk-portable-<version>-x64`）；校验 zip 内含 exe 与 `resources/sidecar-dist/node/node.exe`。
+- [x] **Step 2** `scripts/build-portable.mjs`：从 `target/release/` 收集 `dsh-desk.exe` + 同层 `sidecar-dist/`（Tauri 把 bundle.resources 平铺在 exe 旁，非 `resources/` 子目录——以真实产物为准）→ 打 zip（根目录名 `DSH-desk-portable-<version>-x64`）；校验 zip 内含 exe 与 `sidecar-dist/node/node.exe`（自写零依赖 ZIP64 中央目录解析器 `scripts/zip-entries.mjs`，条目数 69069 已实测）。
 
-- [ ] **Step 3** 验证：全新 Windows 环境模拟（本机 + 干净 VM 一次）：安装 → 首启 → 升级（覆盖安装新版本）→ `~/.dsh` 数据原样 → 卸载。
+- [x] **Step 3** 验证：本机已完成静默安装（`/S`）→ 已装产物冒烟 SMOKE_OK → 覆盖安装 → 卸载，`~/.dsh` 文件数前后一致（10406）；缺省目录、卸载注册表项创建/清理均确认。干净 VM 一次留发布后人工。
 
 ### 任务 5.2：release workflow
 
-- [ ] **Step 1** `.github/workflows/release.yml`（触发 `v*` tag）：
+- [x] **Step 1** `.github/workflows/release.yml`（触发 `v*` tag）：
 
 ```yaml
 name: Release

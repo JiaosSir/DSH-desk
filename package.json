@@ -9,6 +9,7 @@
     "sidecar:assemble": "node scripts/assemble-sidecar.mjs",
     "desktop:dev": "pnpm --dir apps/desktop tauri dev",
     "desktop:build": "pnpm --dir apps/desktop tauri build",
+    "desktop:portable": "node scripts/build-portable.mjs",
     "smoke": "node scripts/smoke-desktop.mjs"
   }
 }
