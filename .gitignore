@@ -1,6 +1,7 @@
 # Node / pnpm
 node_modules/
 .pnpm-store/
+examples/
 
 # Rust / Tauri
 target/

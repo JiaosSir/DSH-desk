@@ -333,7 +333,7 @@ async fn initialize_profile(
     let _ = shell_log.append("初始化 desktop profile…");
     let outcome = profile::ensure_profile_init(&opts).await?;
     for add in &outcome.ran_adds {
-        let _ = shell_log.append(&format!("profile add: {add}"));
+        let _ = shell_log.append(&format!("profile init: {add}"));
     }
     for warn in &outcome.warnings {
         let _ = shell_log.append(warn);

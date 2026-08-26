@@ -21,6 +21,21 @@ use std::path::{Path, PathBuf};
 pub const WEB_APP_PACKAGE: &str = "@deepseek-ai/dsh-web-app";
 pub const BRIDGE_PACKAGE: &str = "@cjiaojiao/dsh-desk-bridge";
 
+/// desktop profile 的安装层（bundle）名单，与 web profile 模板同构：
+/// `dsh-base` 核心 + `dsh-web-app` 浏览器载体。两层都由 sidecar 安装解析
+/// （`resolveBundleDir` 安装优先），因此**只登记进 `dsh.profile.bundles`，
+/// 绝不 `pnpm add`**：add 会把 web-app 的 dependencies 全家桶（90+ 个
+/// `@deepseek-ai/dsh-*` 核心包）装进 profile 的 node_modules，宿主启动时
+/// include 裸包名从 profile 目录解析，核心插件双副本加载、Symbol 分裂，
+/// 工具调用直接崩（2026-08-26 桌面 glob 工具 `reading 'prepare'` 事故；
+/// web profile 从不 add web-app，故 web 一直正常）。
+pub const REQUIRED_BUNDLES: [&str; 2] = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
+
+/// 废弃包名：改名前的 bridge 包。残留的 bundle 层会让 cordis 加载器撞上
+/// `duplicate loader entry id: desk-bridge`（2026-08-26 桌面启动事故）。
+/// 初始化时从 bundles 与 dependencies 两处清理。
+pub const OBSOLETE_PACKAGES: [&str; 1] = ["@JiaosSir/dsh-desk-bridge"];
+
 /// 初始化参数：所有外部路径与版本由壳注入，便于离线单测（桩 node + 桩 bin.js）。
 #[derive(Debug, Clone)]
 pub struct InitOptions {
@@ -34,7 +49,8 @@ pub struct InitOptions {
     pub bin_js: PathBuf,
     /// sidecar 自带 pnpm 目录（注入子进程 PATH 头部）。
     pub pnpm_dir: PathBuf,
-    /// 钉死的 harness 版本（与 sidecar 一致），用于 pin web-app。
+    /// 钉死的 harness 版本（与 sidecar 一致）。web-app 的版本由 sidecar
+    /// 解析决定（bundle 层只登记包名），此值保留供诊断/未来校验。
     pub dsh_version: String,
     /// bridge 安装 spec（env `DSH_DESK_BRIDGE_SPEC` 优先，缺省 `@cjiaojiao/dsh-desk-bridge@<壳版本>`）。
     pub bridge_spec: String,
@@ -54,20 +70,42 @@ pub struct SyncDiff {
     pub missing: Vec<String>,
 }
 
-/// 幂等初始化 desktop profile。缺 web-app（或版本不符）→ 钉版 add；缺 bridge → add spec。
+/// 幂等初始化 desktop profile。
+///
+/// web-app（与 dsh-base）只登记进 `dsh.profile.bundles`、**从不 `pnpm add`**
+/// （add 会把 web-app 的全家桶依赖装进 profile 的 node_modules，宿主核心插件
+/// 双副本加载导致 Symbol 分裂、工具调用崩溃——见 [`REQUIRED_BUNDLES`]）；
+/// 历史污染（dependencies 里残留 web-app / 废弃包名）迁移：移出 dependencies
+/// 并 `dsh plugin install` 重建 node_modules。bridge 缺则 add spec。
 pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcome, String> {
-    let deps = read_dependencies(&opts.profile_dir)?;
     let mut ran_adds = Vec::new();
     let mut warnings = Vec::new();
 
-    // web-app 版本感知：只有缺失或版本不符才重新钉版（防止 profile 与 sidecar 错配）。
-    let web_app_spec = format!("{WEB_APP_PACKAGE}@{}", opts.dsh_version);
-    if deps.get(WEB_APP_PACKAGE).map(String::as_str) != Some(opts.dsh_version.as_str()) {
-        run_add_robust(opts, &web_app_spec).await?;
-        ran_adds.push(web_app_spec);
+    // 1) manifest 存在性 + bundles 规范化：安装层前置、去重、废弃名移除。
+    if ensure_profile_structure(&opts.profile_dir)? {
+        ran_adds.push("bundles 登记（dsh-base + web-app）".to_owned());
     }
-    // bridge 只判存在性（版本随壳同号，缺了才补）。失败不阻塞：桥接插件是
-    // 可选增强（未发布/未链接时宿主照常可用），只记 warning。
+
+    // 2) 历史污染迁移：dependencies 里残留 web-app（旧版 add 装的全家桶源头）
+    //    或废弃包名 → 移出并 install 重建 node_modules。失败是致命错误：不清
+    //    理宿主依旧双副本崩溃，错误页展示原因比启动后静默崩更诚实。
+    let deps = read_dependencies(&opts.profile_dir)?;
+    let stale: Vec<&str> = [WEB_APP_PACKAGE]
+        .into_iter()
+        .chain(OBSOLETE_PACKAGES.iter().copied())
+        .filter(|name| deps.contains_key(*name))
+        .collect();
+    if !stale.is_empty() {
+        if !remove_dependencies(&opts.profile_dir, &stale)? {
+            return Err("移除 profile 残留依赖失败（manifest 不可写）".to_owned());
+        }
+        run_install_robust(opts).await?;
+        ran_adds.push(format!("依赖迁移：移出 {} 并重建 node_modules", stale.join(", ")));
+    }
+
+    // 3) bridge 只判存在性（版本随壳同号，缺了才补）。失败不阻塞：桥接插件是
+    //    可选增强（未发布/未链接时宿主照常可用），只记 warning。
+    let deps = read_dependencies(&opts.profile_dir)?;
     if !deps.contains_key(BRIDGE_PACKAGE) {
         match run_add_robust(opts, &opts.bridge_spec).await {
             Ok(()) => ran_adds.push(opts.bridge_spec.clone()),
@@ -75,6 +113,109 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
         }
     }
     Ok(ProfileInitOutcome { ran_adds, warnings })
+}
+
+/// 确保 profile manifest 存在且 bundles 结构正确（安装层前置、去重、废弃名
+/// 移除）。返回是否有写入。
+fn ensure_profile_structure(dir: &Path) -> Result<bool, String> {
+    let manifest_path = dir.join("package.json");
+    let mut value: serde_json::Value = match std::fs::read_to_string(&manifest_path) {
+        Ok(t) => serde_json::from_str(&t)
+            .map_err(|e| format!("解析 {} 失败: {e}", manifest_path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // 全新 profile：模仿 harness initProfile 的最小 manifest
+            //（bundles 含安装层；依赖留空，由后续 bridge add / pnpm 管理）。
+            let mut root = serde_json::Map::new();
+            root.insert("name".to_owned(), serde_json::json!("dsh-profile-desktop"));
+            root.insert("private".to_owned(), serde_json::json!(true));
+            root.insert("dependencies".to_owned(), serde_json::json!({}));
+            root.insert(
+                "dsh".to_owned(),
+                serde_json::json!({ "profile": { "bundles": REQUIRED_BUNDLES } }),
+            );
+            let manifest = serde_json::Value::Object(root);
+            write_manifest(&manifest_path, &manifest)?;
+            return Ok(true);
+        }
+        Err(e) => return Err(format!("读取 {} 失败: {e}", manifest_path.display())),
+    };
+    let current: Vec<String> = value
+        .pointer("/dsh/profile/bundles")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut target: Vec<String> = Vec::new();
+    for name in REQUIRED_BUNDLES {
+        if !target.iter().any(|t| t == name) {
+            target.push(name.to_owned());
+        }
+    }
+    for name in &current {
+        if REQUIRED_BUNDLES.contains(&name.as_str()) || OBSOLETE_PACKAGES.contains(&name.as_str())
+        {
+            continue;
+        }
+        if !target.contains(name) {
+            target.push(name.clone());
+        }
+    }
+    if current == target {
+        return Ok(false);
+    }
+    let dsh = value
+        .as_object_mut()
+        .ok_or_else(|| format!("{} 根节点不是对象", manifest_path.display()))?
+        .entry("dsh")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| format!("{} 的 dsh 字段不是对象", manifest_path.display()))?;
+    let profile = dsh
+        .entry("profile")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| format!("{} 的 dsh.profile 字段不是对象", manifest_path.display()))?;
+    profile.insert(
+        "bundles".to_owned(),
+        serde_json::Value::Array(target.into_iter().map(serde_json::Value::String).collect()),
+    );
+    write_manifest(&manifest_path, &value)?;
+    Ok(true)
+}
+
+/// 从 manifest 的 dependencies 移除指定包（保留其他字段）。返回是否实际移除。
+fn remove_dependencies(dir: &Path, names: &[&str]) -> Result<bool, String> {
+    let manifest_path = dir.join("package.json");
+    let text = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("读取 {} 失败: {e}", manifest_path.display()))?;
+    let mut value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("解析 {} 失败: {e}", manifest_path.display()))?;
+    let mut changed = false;
+    if let Some(deps) = value
+        .pointer_mut("/dependencies")
+        .and_then(|d| d.as_object_mut())
+    {
+        for name in names {
+            if deps.remove(*name).is_some() {
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        write_manifest(&manifest_path, &value)?;
+    }
+    Ok(changed)
+}
+
+/// 写回 profile manifest（2 空格缩进 + 换行，与 harness 的 writeProfileManifest 同风格）。
+fn write_manifest(path: &Path, value: &serde_json::Value) -> Result<(), String> {
+    let mut text = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("序列化 {} 失败: {e}", path.display()))?;
+    text.push('\n');
+    std::fs::write(path, text).map_err(|e| format!("写入 {} 失败: {e}", path.display()))
 }
 
 /// web profile 有而 desktop profile 无的插件差集（按 web 的 `name@version` 列出）。
@@ -125,26 +266,75 @@ pub struct PluginAddOptions {
 /// 给 profile 追加一个插件（`dsh plugin --profile <name> add <pkg>`）；
 /// 失败时修复 allowBuilds 占位符并重试一次（与 ensure_profile_init 同策略）。
 pub async fn add_profile_plugin(opts: &PluginAddOptions, pkg: &str) -> Result<(), String> {
-    let result = run_add_parts(&opts.node_exe, &opts.bin_js, &opts.pnpm_dir, &opts.profile_name, pkg).await;
+    let result = run_plugin_parts(
+        &opts.node_exe,
+        &opts.bin_js,
+        &opts.pnpm_dir,
+        &opts.profile_name,
+        &["add", pkg],
+    )
+    .await;
     if result.is_ok() {
         return result;
     }
     ensure_allow_builds(&opts.profile_dir)?;
-    run_add_parts(&opts.node_exe, &opts.bin_js, &opts.pnpm_dir, &opts.profile_name, pkg).await
+    run_plugin_parts(
+        &opts.node_exe,
+        &opts.bin_js,
+        &opts.pnpm_dir,
+        &opts.profile_name,
+        &["add", pkg],
+    )
+    .await
 }
 
 /// 经 sidecar 自带 node 执行 `dsh plugin --profile <name> add <pkg>`；
 /// env 注入自带 pnpm 到 PATH 头部 + 零遥测开关。非零退出返回带尾部输出的错误。
 async fn run_add(opts: &InitOptions, pkg: &str) -> Result<(), String> {
-    run_add_parts(&opts.node_exe, &opts.bin_js, &opts.pnpm_dir, &opts.profile_name, pkg).await
+    run_plugin_parts(
+        &opts.node_exe,
+        &opts.bin_js,
+        &opts.pnpm_dir,
+        &opts.profile_name,
+        &["add", pkg],
+    )
+    .await
 }
 
-async fn run_add_parts(
+/// 重建 profile 依赖（`dsh plugin --profile <name> install`）——迁移清理
+/// node_modules 全家桶用。失败时修复 allowBuilds 占位符并重试一次。
+async fn run_install_robust(opts: &InitOptions) -> Result<(), String> {
+    let result = run_plugin_parts(
+        &opts.node_exe,
+        &opts.bin_js,
+        &opts.pnpm_dir,
+        &opts.profile_name,
+        &["install"],
+    )
+    .await;
+    if result.is_ok() {
+        return result;
+    }
+    ensure_allow_builds(&opts.profile_dir)?;
+    run_plugin_parts(
+        &opts.node_exe,
+        &opts.bin_js,
+        &opts.pnpm_dir,
+        &opts.profile_name,
+        &["install"],
+    )
+    .await
+}
+
+/// 经 sidecar 自带 node 执行 `dsh plugin --profile <name> <args...>`（子命令
+/// 原样转发给 pnpm）；env 注入自带 pnpm 到 PATH 头部 + 零遥测开关。非零退出
+/// 返回带尾部输出的错误。
+async fn run_plugin_parts(
     node_exe: &Path,
     bin_js: &Path,
     pnpm_dir: &Path,
     profile_name: &str,
-    pkg: &str,
+    args: &[&str],
 ) -> Result<(), String> {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
     let sep = if cfg!(windows) { ";" } else { ":" };
@@ -152,8 +342,10 @@ async fn run_add_parts(
 
     let mut cmd = tokio::process::Command::new(node_exe);
     cmd.arg(bin_js)
-        .args(["plugin", "--profile", profile_name])
-        .args(["add", pkg])
+        .arg("plugin")
+        .arg("--profile")
+        .arg(profile_name)
+        .args(args)
         .env("PATH", path)
         .env("DSH_TELEMETRY_DISABLED", "1");
     // GUI 壳下不弹控制台窗口（同 supervisor 的 CREATE_NO_WINDOW）。
@@ -162,7 +354,7 @@ async fn run_add_parts(
     let output = cmd
         .output()
         .await
-        .map_err(|e| format!("dsh plugin add 启动失败: {e}"))?;
+        .map_err(|e| format!("dsh plugin 启动失败: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -175,7 +367,8 @@ async fn run_add_parts(
             .rev()
             .collect();
         return Err(format!(
-            "dsh plugin add {pkg} 失败（退出码 {:?}）: {tail}",
+            "dsh plugin {} 失败（退出码 {:?}）: {tail}",
+            args.join(" "),
             output.status.code()
         ));
     }
@@ -251,9 +444,10 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    /// 桩 bin.js：解析 argv 里的 `--profile <name>` 与 `add <pkg>`，把
-    /// `name pkg` 追加到自身旁的 adds.log；pkg 含 `FAILME` 时退出 1；
-    /// 含 `FAILONCE` 时首次退出 1、之后成功。不触网、不真跑 pnpm。
+    /// 桩 bin.js：解析 argv 里的 `--profile <name>` 与子命令（`add <pkg>` /
+    /// `install`），把 `name <pkg|install>` 追加到自身旁的 adds.log；pkg 含
+    /// `FAILME` 时退出 1；含 `FAILONCE` 时首次退出 1、之后成功。不触网、不真
+    /// 跑 pnpm。
     fn stub_node_script() -> &'static str {
         r#"
 const fs = require('node:fs');
@@ -261,7 +455,7 @@ const path = require('node:path');
 const i = process.argv.indexOf('--profile');
 const profile = process.argv[i + 1];
 const j = process.argv.indexOf('add');
-const pkg = process.argv[j + 1];
+const pkg = j >= 0 ? process.argv[j + 1] : 'install';
 fs.appendFileSync(path.join(path.dirname(__filename), 'adds.log'), profile + ' ' + pkg + '\n');
 if (pkg && pkg.includes('FAILME')) process.exit(1);
 if (pkg && pkg.includes('FAILONCE')) {
@@ -330,8 +524,31 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(text.contains("node-pty: true"));
     }
 
+    /// 读取测试 profile 的 manifest 辅助。
+    fn manifest_json(dir: &Path) -> serde_json::Value {
+        serde_json::from_str(&fs::read_to_string(dir.join("package.json")).unwrap()).unwrap()
+    }
+
+    fn bundles_of(dir: &Path) -> Vec<String> {
+        manifest_json(dir)["dsh"]["profile"]["bundles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn deps_of(dir: &Path) -> Vec<String> {
+        manifest_json(dir)["dependencies"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     #[tokio::test]
-    async fn web_app_add_失败后修复占位符并重试() {
+    async fn bridge_add_失败后修复占位符并重试() {
         if !node_available() {
             return;
         }
@@ -340,18 +557,12 @@ if (pkg && pkg.includes('FAILONCE')) {
         fs::create_dir_all(&profile).unwrap();
         let stub = write_stub(&tmp);
         let mut opts = init_options(&profile, &stub);
-        opts.dsh_version = "FAILONCE".into();
+        opts.bridge_spec = "@cjiaojiao/dsh-desk-bridge@FAILONCE".into();
         let outcome = ensure_profile_init(&opts).await.unwrap();
-        assert_eq!(
-            outcome.ran_adds,
-            vec![
-                "@deepseek-ai/dsh-web-app@FAILONCE".to_string(),
-                "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
-            ]
-        );
+        assert!(outcome.warnings.is_empty());
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
         assert_eq!(
-            log.matches("@deepseek-ai/dsh-web-app@FAILONCE").count(),
+            log.matches("@cjiaojiao/dsh-desk-bridge@FAILONCE").count(),
             2,
             "第一次失败后应重试一次"
         );
@@ -411,7 +622,7 @@ if (pkg && pkg.includes('FAILONCE')) {
     }
 
     #[tokio::test]
-    async fn 空_profile_依次_add_web_app_与_bridge() {
+    async fn 空_profile_登记_bundles_并_add_bridge() {
         if !node_available() {
             return;
         }
@@ -424,32 +635,33 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert_eq!(
             outcome.ran_adds,
             vec![
-                "@deepseek-ai/dsh-web-app@0.1.0-rc.8".to_string(),
+                "bundles 登记（dsh-base + web-app）".to_string(),
                 "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
             ]
         );
+        assert!(outcome.warnings.is_empty());
+        // web-app 只登记 bundles，绝不 add（全家桶不进 profile node_modules）。
+        assert_eq!(
+            bundles_of(&profile),
+            vec!["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
+        );
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
         let lines: Vec<&str> = log.trim_end().split('\n').collect();
-        assert_eq!(
-            lines,
-            vec![
-                "desktop @deepseek-ai/dsh-web-app@0.1.0-rc.8",
-                "desktop @cjiaojiao/dsh-desk-bridge@0.1.0",
-            ]
-        );
+        assert_eq!(lines, vec!["desktop @cjiaojiao/dsh-desk-bridge@0.1.0"]);
     }
 
     #[tokio::test]
-    async fn 幂等_第二次无_add() {
+    async fn 幂等_第二次无操作() {
         if !node_available() {
             return;
         }
         let tmp = TempDir::new().unwrap();
         let profile = tmp.path().join("desktop");
         fs::create_dir_all(&profile).unwrap();
+        // 理想终态：dependencies 只有 bridge，bundles 含安装层 + bridge。
         fs::write(
             profile.join("package.json"),
-            r#"{"dependencies":{"@deepseek-ai/dsh-web-app":"0.1.0-rc.8","@cjiaojiao/dsh-desk-bridge":"0.1.0"}}"#,
+            r#"{"name":"dsh-profile-desktop","private":true,"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@cjiaojiao/dsh-desk-bridge"]}}}"#,
         )
         .unwrap();
         let stub = write_stub(&tmp);
@@ -461,7 +673,7 @@ if (pkg && pkg.includes('FAILONCE')) {
     }
 
     #[tokio::test]
-    async fn bridge_已在则只补_web_app() {
+    async fn bundles_缺失时补登记安装层() {
         if !node_available() {
             return;
         }
@@ -478,9 +690,16 @@ if (pkg && pkg.includes('FAILONCE')) {
         let outcome = ensure_profile_init(&opts).await.unwrap();
         assert_eq!(
             outcome.ran_adds,
-            vec!["@deepseek-ai/dsh-web-app@0.1.0-rc.8".to_string()]
+            vec!["bundles 登记（dsh-base + web-app）".to_string()]
         );
         assert!(outcome.warnings.is_empty());
+        // 安装层补齐；bridge 进 bundles 由 harness 的 reconcile 负责（真实
+        // 环境 add/install 时自动追加），此处只保证宿主可启动的安装层。
+        assert_eq!(
+            bundles_of(&profile),
+            vec!["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
+        );
+        assert!(!tmp.path().join("adds.log").exists());
     }
 
     #[tokio::test]
@@ -493,40 +712,65 @@ if (pkg && pkg.includes('FAILONCE')) {
         fs::create_dir_all(&profile).unwrap();
         fs::write(
             profile.join("package.json"),
-            r#"{"dependencies":{"@deepseek-ai/dsh-web-app":"0.1.0-rc.8"}}"#,
+            r#"{"dependencies":{},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app"]}}}"#,
         )
         .unwrap();
         let stub = write_stub(&tmp);
         let mut opts = init_options(&profile, &stub);
         opts.bridge_spec = "@cjiaojiao/dsh-desk-bridge@FAILME".into();
         let outcome = ensure_profile_init(&opts).await.unwrap();
-        assert!(outcome.ran_adds.is_empty());
-        assert_eq!(outcome.warnings.len(), 1);
+        assert!(outcome.warnings.len() == 1);
         assert!(outcome.warnings[0].contains("FAILME"));
     }
 
     #[tokio::test]
-    async fn web_app_版本不符时重新钉版() {
+    async fn web_app_在dependencies时迁移清理() {
         if !node_available() {
             return;
         }
         let tmp = TempDir::new().unwrap();
         let profile = tmp.path().join("desktop");
         fs::create_dir_all(&profile).unwrap();
+        // 历史污染：web-app 被旧版初始化 add 进 dependencies（全家桶源头）。
         fs::write(
             profile.join("package.json"),
-            r#"{"dependencies":{"@deepseek-ai/dsh-web-app":"0.1.0-rc.7"}}"#,
+            r#"{"dependencies":{"@deepseek-ai/dsh-web-app":"0.1.0-rc.8","@cjiaojiao/dsh-desk-bridge":"0.1.0"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@cjiaojiao/dsh-desk-bridge"]}}}"#,
         )
         .unwrap();
         let stub = write_stub(&tmp);
         let opts = init_options(&profile, &stub);
         let outcome = ensure_profile_init(&opts).await.unwrap();
-        assert_eq!(
-            outcome.ran_adds,
-            vec![
-                "@deepseek-ai/dsh-web-app@0.1.0-rc.8".to_string(),
-                "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
-            ]
-        );
+        assert!(outcome.ran_adds.iter().any(|a| a.contains("依赖迁移")));
+        // 迁移后：dependencies 不再有 web-app，bundles 保留安装层。
+        assert!(!deps_of(&profile).contains(&"@deepseek-ai/dsh-web-app".to_string()));
+        assert!(bundles_of(&profile).contains(&"@deepseek-ai/dsh-web-app".to_string()));
+        // install 被调用过一次（重建 node_modules 清理全家桶）。
+        let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
+        assert_eq!(log.trim().lines().filter(|l| l.ends_with(" install")).count(), 1);
+    }
+
+    #[tokio::test]
+    async fn 废弃包名_从bundles与dependencies清理() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // 改名前的 bridge 残留（duplicate loader entry id 事故源头）。
+        fs::write(
+            profile.join("package.json"),
+            r#"{"dependencies":{"@JiaosSir/dsh-desk-bridge":"0.1.0","@cjiaojiao/dsh-desk-bridge":"0.1.0"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@JiaosSir/dsh-desk-bridge","@cjiaojiao/dsh-desk-bridge"]}}}"#,
+        )
+        .unwrap();
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profile, &stub);
+        let outcome = ensure_profile_init(&opts).await.unwrap();
+        assert!(outcome.ran_adds.iter().any(|a| a.contains("依赖迁移")));
+        assert!(!deps_of(&profile).contains(&"@JiaosSir/dsh-desk-bridge".to_string()));
+        assert!(!bundles_of(&profile).contains(&"@JiaosSir/dsh-desk-bridge".to_string()));
+        assert!(bundles_of(&profile).contains(&"@cjiaojiao/dsh-desk-bridge".to_string()));
+        let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
+        assert_eq!(log.trim().lines().filter(|l| l.ends_with(" install")).count(), 1);
     }
 }
