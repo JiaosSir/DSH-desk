@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+  <title>SmartScreen 处理步骤示意</title>
+  <desc>未签名安装包被 SmartScreen 拦截时的处理步骤：点击「更多信息」，再点击「仍要运行」。示意图，实际对话框以 Windows 版本为准。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b93a1"/>
+    </marker>
+  </defs>
+
+  <!-- 步骤 1 对话框 -->
+  <g>
+    <rect x="20" y="40" width="360" height="250" rx="8" fill="#ffffff" stroke="#d0d4da" stroke-width="1.5"/>
+    <rect x="20" y="40" width="360" height="36" rx="8" fill="#f3f4f6"/>
+    <rect x="20" y="68" width="360" height="8" fill="#f3f4f6"/>
+    <circle cx="36" cy="58" r="4" fill="#e5484d"/>
+    <circle cx="52" cy="58" r="4" fill="#f5a623"/>
+    <circle cx="68" cy="58" r="4" fill="#30a46c"/>
+    <text x="360" y="64" text-anchor="end" font-size="13" fill="#57606a">SmartScreen</text>
+    <text x="40" y="110" font-size="16" font-weight="600" fill="#24292f">Windows 已保护你的电脑</text>
+    <text x="40" y="134" font-size="12.5" fill="#57606a">Microsoft Defender SmartScreen 已阻止启动</text>
+    <text x="40" y="152" font-size="12.5" fill="#57606a">一个未识别的应用。运行此应用可能会导致</text>
+    <text x="40" y="170" font-size="12.5" fill="#57606a">你的电脑存在风险。</text>
+    <text x="40" y="196" font-size="12" fill="#8b93a1">应用：DSH-desk_&lt;版本&gt;_x64-setup.exe</text>
+    <rect x="180" y="228" width="88" height="28" rx="4" fill="#e8ebef" stroke="#c9ced6"/>
+    <text x="224" y="247" text-anchor="middle" font-size="12.5" fill="#24292f">不运行</text>
+    <rect x="276" y="228" width="88" height="28" rx="4" fill="#0969da"/>
+    <text x="320" y="247" text-anchor="middle" font-size="12.5" fill="#ffffff">更多信息</text>
+    <circle cx="376" cy="222" r="11" fill="#ffd33d" stroke="#f0a500" stroke-width="1.5"/>
+    <text x="376" y="227" text-anchor="middle" font-size="13" font-weight="700" fill="#5c4700">①</text>
+  </g>
+
+  <!-- 箭头 -->
+  <line x1="392" y1="165" x2="478" y2="165" stroke="#8b93a1" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="435" y="150" text-anchor="middle" font-size="12" fill="#57606a">点击</text>
+
+  <!-- 步骤 2 对话框 -->
+  <g>
+    <rect x="480" y="40" width="360" height="250" rx="8" fill="#ffffff" stroke="#d0d4da" stroke-width="1.5"/>
+    <rect x="480" y="40" width="360" height="36" rx="8" fill="#f3f4f6"/>
+    <rect x="480" y="68" width="360" height="8" fill="#f3f4f6"/>
+    <circle cx="496" cy="58" r="4" fill="#e5484d"/>
+    <circle cx="512" cy="58" r="4" fill="#f5a623"/>
+    <circle cx="528" cy="58" r="4" fill="#30a46c"/>
+    <text x="820" y="64" text-anchor="end" font-size="13" fill="#57606a">SmartScreen</text>
+    <text x="500" y="110" font-size="16" font-weight="600" fill="#24292f">Windows 已保护你的电脑</text>
+    <text x="500" y="134" font-size="12.5" fill="#57606a">Microsoft Defender SmartScreen 已阻止启动</text>
+    <text x="500" y="152" font-size="12.5" fill="#57606a">一个未识别的应用。运行此应用可能会导致</text>
+    <text x="500" y="170" font-size="12.5" fill="#57606a">你的电脑存在风险。</text>
+    <text x="500" y="196" font-size="12" fill="#8b93a1">应用：DSH-desk_&lt;版本&gt;_x64-setup.exe</text>
+    <rect x="640" y="228" width="88" height="28" rx="4" fill="#e8ebef" stroke="#c9ced6"/>
+    <text x="684" y="247" text-anchor="middle" font-size="12.5" fill="#24292f">不运行</text>
+    <rect x="736" y="228" width="88" height="28" rx="4" fill="#0969da"/>
+    <text x="780" y="247" text-anchor="middle" font-size="12.5" fill="#ffffff">仍要运行</text>
+    <circle cx="836" cy="222" r="11" fill="#ffd33d" stroke="#f0a500" stroke-width="1.5"/>
+    <text x="836" y="227" text-anchor="middle" font-size="13" font-weight="700" fill="#5c4700">②</text>
+  </g>
+
+  <text x="430" y="320" text-anchor="middle" font-size="12" fill="#8b93a1">示意图：先点「更多信息」，再点「仍要运行」（实际对话框样式以 Windows 版本为准）</text>
+</svg>

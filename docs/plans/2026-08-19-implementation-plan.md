@@ -904,15 +904,15 @@ jobs:
 
 ### 任务 6.1：用户文档
 
-- [ ] **Step 1** README 必备章节：是什么 / 系统要求（Win10+ x64，WebView2 自动安装）/ 安装（NSIS 与 portable 两种 + SmartScreen "更多信息→仍要运行"配图步骤）/ 首次引导（API key 从 DeepSeek 平台获取、工作区选择）/ 与 CLI dsh 共存（共享 `~/.dsh` 数据、last-writer-wins 说明、rc 版本建议）/ 卸载与升级（覆盖安装、数据保留）/ 隐私（零遥测、本地日志、出站流量清单——不变式 1/2）。
+- [x] **Step 1** README 必备章节：是什么 / 系统要求（Win10+ x64，WebView2 自动安装）/ 安装（NSIS 与 portable 两种 + SmartScreen "更多信息→仍要运行"配图步骤）/ 首次引导（API key 从 DeepSeek 平台获取、工作区选择）/ 与 CLI dsh 共存（共享 `~/.dsh` 数据、last-writer-wins 说明、rc 版本建议）/ 卸载与升级（覆盖安装、数据保留）/ 隐私（零遥测、本地日志、出站流量清单——不变式 1/2）。
 
-- [ ] **Step 2** FAQ 至少覆盖：SmartScreen 拦截 / 端口被占或安全软件 / WebView2 缺失 / 首启网络失败（重试 + 日志）/ 插件同步与生效时机（重启宿主）/ 日志在哪、怎么给开发者 / 快捷键冲突怎么改（config.json）/ 杀软误报。
+- [x] **Step 2** FAQ 至少覆盖：SmartScreen 拦截 / 端口被占或安全软件 / WebView2 缺失 / 首启网络失败（重试 + 日志）/ 插件同步与生效时机（重启宿主）/ 日志在哪、怎么给开发者 / 快捷键冲突怎么改（config.json）/ 杀软误报。
 
 ### 任务 6.2：开发者文档
 
-- [ ] **Step 1** `docs/dev/BUILDING.md`：本计划 D1-D12 决策摘要、sidecar 组装与版本升级点（NODE/PNPM/DSH 常量）、bridge 发布流程、release 流程、冒烟测试用法、spec/plan 指针。
+- [x] **Step 1** `docs/dev/BUILDING.md`：本计划 D1-D12 决策摘要、sidecar 组装与版本升级点（NODE/PNPM/DSH 常量）、bridge 发布流程、release 流程、冒烟测试用法、spec/plan 指针。
 
-- [ ] **Step 2** 提交收尾：`git commit -m "docs: user guide, faq and developer documentation"`。
+- [x] **Step 2** 提交收尾：`git commit -m "docs: user guide, faq and developer documentation"`。
 
 ### 阶段 6 验收标准
 
