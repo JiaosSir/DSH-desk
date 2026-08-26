@@ -36,6 +36,15 @@ pub const REQUIRED_BUNDLES: [&str; 2] = ["@deepseek-ai/dsh-base", "@deepseek-ai/
 /// 初始化时从 bundles 与 dependencies 两处清理。
 pub const OBSOLETE_PACKAGES: [&str; 1] = ["@JiaosSir/dsh-desk-bridge"];
 
+/// desktop profile 的名字（`dsh plugin --profile <name>` / `$DSH_HOME/profiles/<name>`）。
+/// 带品牌区分的名字，避免与生态里常见的 `desktop` 冲突。
+pub const PROFILE_NAME: &str = "DSHdesk";
+
+/// 改名前的旧 profile 名（2026-08-26 起改用 [`PROFILE_NAME`]）。启动时检测并
+/// 迁移（重命名目录，node_modules/锁文件跟随移动；会话/设置与 profile 名无关，
+/// 本就共享）。
+pub const LEGACY_PROFILE_NAME: &str = "desktop";
+
 /// 默认随装插件（`name@spec`，缺则 add，失败只 warning 不阻塞启动，与
 /// bridge 同语义）。目前：dsh-market 插件市场（`dshmarket`）。
 ///
@@ -43,7 +52,7 @@ pub const OBSOLETE_PACKAGES: [&str; 1] = ["@JiaosSir/dsh-desk-bridge"];
 /// - **依赖必须干净**（dependencies 不得含 `@deepseek-ai/*`——装了会重蹈
 ///   双副本 Symbol 分裂事故；dshmarket 仅依赖 js-yaml/undici，通过）；
 /// - 宿主半部必须能从 argv 的 `--profile` 解析激活 profile（dshmarket 的
-///   `argvProfile()` 原生支持，桌面启动命令 `--profile desktop` 自动命中）；
+///   `argvProfile()` 原生支持，桌面启动命令 `--profile {PROFILE_NAME}` 自动命中）；
 /// - 安装命令经 `dshArgv()` 用宿主自身的 node + bin.js 重入（不依赖系统
 ///   安装的 dsh）。
 pub const DEFAULT_PLUGINS: [&str; 1] = ["dshmarket@1.31.1"];
@@ -53,7 +62,7 @@ pub const DEFAULT_PLUGINS: [&str; 1] = ["dshmarket@1.31.1"];
 ///
 /// dsh-market 必须禁用它自带的「重启宿主」：`scheduleRestart` 会让 sidecar
 /// 自杀并 spawn 一个 detached 孤儿宿主进程，绕过壳监督器（桌面由壳负责
-/// 重启，参考项目同样强制 `allowRestart: false`）；`profile: desktop` 显式
+/// 重启，参考项目同样强制 `allowRestart: false`）；`profile: DSHdesk` 显式
 /// 钉死安装目标（防御未来启动方式变化导致 argv 解析失效）。
 ///
 /// 注意：必须用 `concat!` 而非 `\` 续行——续行符会吃掉行首缩进，生成的
@@ -64,13 +73,13 @@ pub const DEFAULT_PLUGIN_PATCH_OVERRIDES: &str = concat!(
     "- id: dsh-market\n",
     "  config:\n",
     "    allowRestart: false\n",
-    "    profile: desktop\n",
+    "    profile: DSHdesk\n",
 );
 
 /// 初始化参数：所有外部路径与版本由壳注入，便于离线单测（桩 node + 桩 bin.js）。
 #[derive(Debug, Clone)]
 pub struct InitOptions {
-    /// desktop profile 目录（`$DSH_HOME/profiles/desktop`），用于幂等判定。
+    /// desktop profile 目录（`$DSH_HOME/profiles/DSHdesk`），用于幂等判定。
     pub profile_dir: PathBuf,
     /// desktop profile 名（`dsh plugin --profile <name>` 用名字，不是路径）。
     pub profile_name: String,
@@ -111,6 +120,15 @@ pub struct SyncDiff {
 pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcome, String> {
     let mut ran_adds = Vec::new();
     let mut warnings = Vec::new();
+
+    // 0) 旧 profile 名迁移（desktop → DSHdesk）：重命名目录，node_modules/锁
+    //    文件跟随移动；会话/设置与 profile 名无关，本就共享。失败只 warning
+    //    （不阻塞启动，用户可手动处理）。
+    match migrate_legacy_profile(&opts.profile_dir) {
+        Ok(Some(desc)) => ran_adds.push(format!("profile 迁移：{desc}")),
+        Ok(None) => {}
+        Err(e) => warnings.push(format!("旧 profile 迁移失败（不阻塞启动）: {e}")),
+    }
 
     // 1) manifest 存在性 + bundles 规范化：安装层前置、去重、废弃名移除。
     if ensure_profile_structure(&opts.profile_dir)? {
@@ -267,6 +285,27 @@ fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
     std::fs::write(&patch_path, updated)
         .map_err(|e| format!("写入 {} 失败: {e}", patch_path.display()))?;
     Ok(true)
+}
+
+/// 旧 profile 名迁移：`$DSH_HOME/profiles/<LEGACY_PROFILE_NAME>` 存在且新名
+/// 目录（`dir`）不存在时整体重命名（node_modules/lock 跟随目录移动）。返回
+/// 迁移描述；无迁移返回 `None`；失败返回 Err（调用方记 warning，不阻塞启动）。
+fn migrate_legacy_profile(dir: &Path) -> Result<Option<String>, String> {
+    let legacy = dir
+        .parent()
+        .map(|p| p.join(LEGACY_PROFILE_NAME))
+        .unwrap_or_default();
+    if !legacy.exists() || dir.exists() {
+        return Ok(None);
+    }
+    std::fs::rename(&legacy, dir).map_err(|e| {
+        format!(
+            "重命名旧 profile 目录 {} → {} 失败: {e}",
+            legacy.display(),
+            dir.display()
+        )
+    })?;
+    Ok(Some(format!("{LEGACY_PROFILE_NAME} → {PROFILE_NAME}")))
 }
 
 /// 确保 profile manifest 存在且 bundles 结构正确（安装层前置、去重、废弃名
@@ -633,7 +672,7 @@ if (pkg && pkg.includes('FAILONCE')) {
     fn init_options(profile_dir: &Path, stub: &Path) -> InitOptions {
         InitOptions {
             profile_dir: profile_dir.to_owned(),
-            profile_name: "desktop".into(),
+            profile_name: PROFILE_NAME.to_owned(),
             node_exe: "node".into(),
             bin_js: stub.to_owned(),
             pnpm_dir: profile_dir.join("pnpm-stub"),
@@ -732,7 +771,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         let stub = write_stub(&tmp);
         let opts = PluginAddOptions {
             profile_dir: profile.clone(),
-            profile_name: "desktop".into(),
+            profile_name: PROFILE_NAME.to_owned(),
             node_exe: "node".into(),
             bin_js: stub,
             pnpm_dir: profile.join("pnpm-stub"),
@@ -807,15 +846,15 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert_eq!(
             lines,
             vec![
-                "desktop @cjiaojiao/dsh-desk-bridge@0.1.0",
-                "desktop dshmarket@1.31.1",
+                "DSHdesk @cjiaojiao/dsh-desk-bridge@0.1.0",
+                "DSHdesk dshmarket@1.31.1",
             ]
         );
         // 默认插件的用户层 patch：dsh-market 禁用自带重启 + 钉激活 profile。
         let patch = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
         assert!(patch.contains("- id: dsh-market"));
         assert!(patch.contains("allowRestart: false"));
-        assert!(patch.contains("profile: desktop"));
+        assert!(patch.contains("profile: DSHdesk"));
     }
 
     #[tokio::test]
@@ -874,7 +913,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             vec!["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
         );
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
-        assert!(log.contains("desktop dshmarket@1.31.1"));
+        assert!(log.contains("DSHdesk dshmarket@1.31.1"));
     }
 
     #[tokio::test]
@@ -1000,7 +1039,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(ensure_user_patch_overrides(&profile).unwrap());
         let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
         assert!(text.contains("- id: dsh-market"));
-        assert!(text.contains("profile: desktop"));
+        assert!(text.contains("profile: DSHdesk"));
         // 缩进必须完整：`config:` 是 `- id:` 的子键（两个空格缩进），
         // 缺失会导致 YAML 解析失败（2026-08-26 实测事故）。
         assert!(text.contains("\n  config:\n"));
@@ -1018,7 +1057,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         // YAML 非法。虽然文本含 `allowRestart: false` 字样，也必须重写。
         fs::write(
             profile.join("cordis.patch.yml"),
-            "# DSH-desk 生成的用户层 patch：默认插件的桌面环境配置。\n# dsh-market：桌面由壳监督宿主生命周期，禁用市场自带重启（防孤儿进程）。\n- id: dsh-market\nconfig:\nallowRestart: false\nprofile: desktop\n",
+            "# DSH-desk 生成的用户层 patch：默认插件的桌面环境配置。\n# dsh-market：桌面由壳监督宿主生命周期，禁用市场自带重启（防孤儿进程）。\n- id: dsh-market\nconfig:\nallowRestart: false\nprofile: DSHdesk\n",
         )
         .unwrap();
         assert!(ensure_user_patch_overrides(&profile).unwrap());
@@ -1088,5 +1127,40 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("双副本"));
         assert!(warnings[0].contains("@deepseek-ai/dsh-tools"));
+    }
+
+    #[tokio::test]
+    async fn 旧profile名_自动迁移() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profiles = tmp.path().join("profiles");
+        // 旧名目录存在（含配置），新名目录不存在。
+        let legacy = profiles.join(LEGACY_PROFILE_NAME);
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("package.json"), "{}").unwrap();
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profiles.join(PROFILE_NAME), &stub);
+        let outcome = ensure_profile_init(&opts).await.unwrap();
+        assert!(outcome.ran_adds.iter().any(|a| a.contains("profile 迁移")));
+        assert!(outcome
+            .ran_adds
+            .iter()
+            .any(|a| a.contains("desktop → DSHdesk")));
+        assert!(!legacy.exists());
+        assert!(profiles.join(PROFILE_NAME).join("package.json").exists());
+    }
+
+    #[test]
+    fn 旧profile名_新名已存在时不迁移() {
+        let tmp = TempDir::new().unwrap();
+        let profiles = tmp.path().join("profiles");
+        let legacy = profiles.join(LEGACY_PROFILE_NAME);
+        let current = profiles.join(PROFILE_NAME);
+        fs::create_dir_all(&legacy).unwrap();
+        fs::create_dir_all(&current).unwrap();
+        assert!(migrate_legacy_profile(&current).unwrap().is_none());
+        assert!(legacy.exists(), "新名已存在时不得改名旧目录");
     }
 }

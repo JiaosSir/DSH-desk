@@ -170,13 +170,15 @@ pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(),
         .map_err(|e| format!("系统通知失败: {e}"))
 }
 
-/// web→desktop 同步差集（web 有而 desktop 无的 `name@version`）。
+/// web→desktop 同步差集（web 有而 DSHdesk 无的 `name@version`）。
 #[tauri::command]
 pub fn desktop_sync_list() -> Vec<String> {
     let home = desk_core::paths::dsh_home();
     desk_core::profile::compute_sync_diff(
         &home.join("profiles").join("web"),
-        &home.join("profiles").join("desktop"),
+        &home
+            .join("profiles")
+            .join(desk_core::profile::PROFILE_NAME),
     )
     .missing
 }
@@ -193,7 +195,7 @@ pub async fn desktop_sync_add(pkg: String, state: State<'_, AppState>) -> Result
     desk_core::profile::add_profile_plugin(
         &desk_core::profile::PluginAddOptions {
             profile_dir: desk_core::paths::profile_dir(),
-            profile_name: "desktop".to_owned(),
+            profile_name: desk_core::profile::PROFILE_NAME.to_owned(),
             node_exe: sidecar.node_exe,
             bin_js: sidecar.bin_js,
             pnpm_dir: sidecar.pnpm_dir,

@@ -247,14 +247,22 @@ async fn supervisor_task(
             };
             let port_str = port.to_string();
             let _ = shell_log.append(&format!(
-                "启动宿主 node {} --profile desktop --port {port}",
-                bin_js.display()
+                "启动宿主 node {} --profile {} --port {port}",
+                bin_js.display(),
+                profile::PROFILE_NAME
             ));
             if let Err(e) = sup
                 .start(
                     port,
                     &node,
-                    &[&bin, "--profile", "desktop", "--port", &port_str, "--no-open"],
+                    &[
+                        &bin,
+                        "--profile",
+                        profile::PROFILE_NAME,
+                        "--port",
+                        &port_str,
+                        "--no-open",
+                    ],
                     &envs,
                 )
                 .await
@@ -323,7 +331,7 @@ async fn initialize_profile(
         .unwrap_or_else(|| format!("@cjiaojiao/dsh-desk-bridge@{}", env!("CARGO_PKG_VERSION")));
     let opts = profile::InitOptions {
         profile_dir: paths::profile_dir(),
-        profile_name: "desktop".to_owned(),
+        profile_name: profile::PROFILE_NAME.to_owned(),
         node_exe: node_exe.to_owned(),
         bin_js: bin_js.to_owned(),
         pnpm_dir: sidecar_root.join("pnpm"),

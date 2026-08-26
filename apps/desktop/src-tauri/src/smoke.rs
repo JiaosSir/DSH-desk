@@ -35,7 +35,7 @@ async fn smoke() -> Result<(), String> {
         .unwrap_or_else(|| format!("@cjiaojiao/dsh-desk-bridge@{}", env!("CARGO_PKG_VERSION")));
     let outcome = profile::ensure_profile_init(&profile::InitOptions {
         profile_dir: paths::profile_dir(),
-        profile_name: "desktop".to_owned(),
+        profile_name: profile::PROFILE_NAME.to_owned(),
         node_exe: node_exe.clone(),
         bin_js: bin_js.clone(),
         pnpm_dir: sidecar_root.join("pnpm"),
@@ -69,7 +69,14 @@ async fn smoke() -> Result<(), String> {
     sup.start(
         port,
         &node,
-        &[&bin, "--profile", "desktop", "--port", &port_str, "--no-open"],
+        &[
+            &bin,
+            "--profile",
+            profile::PROFILE_NAME,
+            "--port",
+            &port_str,
+            "--no-open",
+        ],
         &envs,
     )
     .await?;

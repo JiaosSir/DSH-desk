@@ -70,9 +70,9 @@ node scripts/assemble-sidecar.mjs --force   # 强制重建
 - 下载缓存在 `.downloads/`（可手动把 `node-v*-win-x64.zip`、`pnpm-*.tgz` 放进去加速）；
 - **版本钉死常量**在 `scripts/assemble-sidecar.mjs` 顶部（`NODE_VERSION` / `PNPM_VERSION` / `DSH_VERSION`），升级 harness = 改 `DSH_VERSION` 后重新组装 + 发新版安装包。
 
-## 初始化 desktop profile（壳自动；开发期可手动预演）
+## 初始化 desktop profile（名字 `DSHdesk`；壳自动；开发期可手动预演）
 
-壳在首启会全自动完成此步（幂等）：登记安装层 bundles（`dsh-base` + `dsh-web-app`，**只登记进 `dsh.profile.bundles`，绝不 `pnpm add`**——add 会把 web-app 的 90+ 依赖全家桶装进 profile 的 node_modules，宿主启动时核心插件双副本加载、Symbol 分裂、工具调用崩溃，2026-08-26 桌面 glob 工具事故即此因；web-app 版本由 sidecar 解析决定），bridge 缺则 `add`（spec = `DSH_DESK_BRIDGE_SPEC` 环境变量优先，缺省 `@cjiaojiao/dsh-desk-bridge@<壳版本>`）；历史残留（dependencies 里的 web-app / 废弃包名 `@JiaosSir/dsh-desk-bridge`）自动迁移清理。首次 add 时自动修复 `pnpm-workspace.yaml` 的 `allowBuilds` 占位符（`koffi: true` + 补 `node-pty: true`）。
+壳在首启会全自动完成此步（幂等）：登记安装层 bundles（`dsh-base` + `dsh-web-app`，**只登记进 `dsh.profile.bundles`，绝不 `pnpm add`**——add 会把 web-app 的 90+ 依赖全家桶装进 profile 的 node_modules，宿主启动时核心插件双副本加载、Symbol 分裂、工具调用崩溃，2026-08-26 桌面 glob 工具事故即此因；web-app 版本由 sidecar 解析决定），bridge 缺则 `add`（spec = `DSH_DESK_BRIDGE_SPEC` 环境变量优先，缺省 `@cjiaojiao/dsh-desk-bridge@<壳版本>`），默认插件（`dshmarket@1.31.1` 插件市场）缺则 `add`；历史残留（dependencies 里的 web-app / 废弃包名 `@JiaosSir/dsh-desk-bridge`）自动迁移清理；旧 profile 名 `desktop` 自动迁移为 `DSHdesk`。首次 add 时自动修复 `pnpm-workspace.yaml` 的 `allowBuilds` 占位符（`koffi: true` + 补 `node-pty: true`）。
 
 开发期手动预演（只需预演 bridge 的 add；安装层由壳登记）：
 
@@ -80,12 +80,12 @@ node scripts/assemble-sidecar.mjs --force   # 强制重建
 $side = "D:\project\open-source\DSH-desk\apps\desktop\src-tauri\sidecar-dist"
 $env:Path = "$side\pnpm;" + $env:Path
 
-& "$side\node\node.exe" "$side\node_modules\@deepseek-ai\dsh\lib\bin.js" plugin --profile desktop add "@cjiaojiao/dsh-desk-bridge@0.1.0"
+& "$side\node\node.exe" "$side\node_modules\@deepseek-ai\dsh\lib\bin.js" plugin --profile DSHdesk add "@cjiaojiao/dsh-desk-bridge@0.1.0"
 ```
 
 （bridge spec 缺省版本 = `apps/desktop/src-tauri/Cargo.toml` 的 `version`，经 `env!("CARGO_PKG_VERSION")` 注入；开发期可用 `DSH_DESK_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接。）
 
-初始化后 `~/.dsh/profiles/desktop/package.json` 的终态（bundles 含安装层 + bridge，dependencies 只有 bridge）：
+初始化后 `~/.dsh/profiles/DSHdesk/package.json` 的终态（bundles 含安装层 + bridge + dshmarket，dependencies 只有 bridge + dshmarket）：
 
 ```json
 {
@@ -108,7 +108,7 @@ D:\project\open-source\DSH-desk\target\debug\dsh-desk.exe
 
 开发构建会自动用源码目录 `apps/desktop/src-tauri/sidecar-dist` 作为 sidecar（无需再设 `SIDECAR_ROOT`）；仍可用 `$env:SIDECAR_ROOT = "..."` 覆盖为任意目录（冒烟/调试用）。
 
-启动序列：解析 sidecar → 初始化 desktop profile（幂等：登记安装层 bundles `dsh-base` + `dsh-web-app`、bridge 缺则补，历史残留自动迁移）→ 选空闲端口 → 拉起 sidecar（`dsh --profile desktop --port N --no-open`，环境注入 `DSH_TELEMETRY_DISABLED=1` 与自带 pnpm 的 PATH）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 自动导航。崩溃按 1s/2s/4s 退避重启（3 次上限），耗尽后展示错误页（重试 / 打开日志目录 / 退出）。托盘菜单：显示/隐藏、重启宿主、打开日志目录、退出。
+启动序列：解析 sidecar → 初始化 desktop profile（名字 `DSHdesk`，幂等：登记安装层 bundles `dsh-base` + `dsh-web-app`、bridge 与默认插件缺则补、历史残留自动迁移、旧名 `desktop` 目录自动改名）→ 选空闲端口 → 拉起 sidecar（`dsh --profile DSHdesk --port N --no-open`，环境注入 `DSH_TELEMETRY_DISABLED=1` 与自带 pnpm 的 PATH）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 自动导航。崩溃按 1s/2s/4s 退避重启（3 次上限），耗尽后展示错误页（重试 / 打开日志目录 / 退出）。托盘菜单：显示/隐藏、重启宿主、打开日志目录、退出。
 
 生产包只携带 `sidecar-dist.tar` + `sidecar-version.json`：首启把它们解压到 `%LOCALAPPDATA%\com.dsh.desk\sidecar-dist`（等待页显示进度条），按 VERSION.json 幂等，之后启动直接复用；环境变量 `DSH_DESK_SIDECAR_CACHE` 可覆盖缓存目录（冒烟/调试用）。`SIDECAR_ROOT` 仍可指向任意解压好的目录绕过上述流程。
 

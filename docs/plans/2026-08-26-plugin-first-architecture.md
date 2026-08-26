@@ -46,7 +46,7 @@
                        │ ② 页面 → 宿主半部（同源 HTTP 路由）
                        │    /api/desktop/*  （loopback + 同源校验）
 ┌──────────────────────▼──────────────────────────▼────────────────────┐
-│  sidecar（node bin.js --profile desktop）—— harness 宿主（进程 B）    │
+│  sidecar（node bin.js --profile DSHdesk）—— harness 宿主（进程 B）    │
 │                                                                      │
 │  ┌─ Cordis 插件树 ────────────────────────────────────────────────┐  │
 │  │  dsh-base（核心 agent/模型/工具/会话）                           │  │

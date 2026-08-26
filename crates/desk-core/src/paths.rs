@@ -23,9 +23,12 @@ pub fn dsh_home() -> PathBuf {
     resolve_dsh_home(std::env::var_os("DSH_HOME").as_deref(), fallback)
 }
 
-/// desktop profile 目录（`$DSH_HOME/profiles/desktop`）。
+/// desktop profile 目录（`$DSH_HOME/profiles/DSHdesk`，名字见
+/// `profile::PROFILE_NAME`，旧名 `desktop` 启动时自动迁移）。
 pub fn profile_dir() -> PathBuf {
-    dsh_home().join("profiles").join("desktop")
+    dsh_home()
+        .join("profiles")
+        .join(crate::profile::PROFILE_NAME)
 }
 
 /// 桌面自有状态目录（config.json、日志等，规格 §8b）。
@@ -94,8 +97,8 @@ mod tests {
         // 直接验证纯函数式拼接，不依赖进程环境。
         let home = PathBuf::from(r"D:\data\dsh");
         assert_eq!(
-            home.join("profiles").join("desktop"),
-            PathBuf::from(r"D:\data\dsh\profiles\desktop")
+            home.join("profiles").join(crate::profile::PROFILE_NAME),
+            PathBuf::from(r"D:\data\dsh\profiles\DSHdesk")
         );
         assert_eq!(home.join("desktop"), PathBuf::from(r"D:\data\dsh\desktop"));
         assert_eq!(
