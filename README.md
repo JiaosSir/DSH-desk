@@ -69,7 +69,5 @@
 - 上游项目：[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（MIT）
 - 常见问题：[`docs/FAQ.md`](docs/FAQ.md)
 - 开发者文档：[`docs/README.md`](docs/README.md)（环境准备/启动/测试）与 [`docs/dev/BUILDING.md`](docs/dev/BUILDING.md)（构建与发布）
-- 桥接插件：[`packages/dsh-desk-bridge`](packages/dsh-desk-bridge)
-- 设计规格：[`docs/specs/2026-08-19-desktop-shell-design.md`](docs/specs/2026-08-19-desktop-shell-design.md)
-- 实施计划：[`docs/plans/2026-08-19-implementation-plan.md`](docs/plans/2026-08-19-implementation-plan.md)
+- windows系统功能桥接插件：[`packages/dsh-desk-bridge`](packages/dsh-desk-bridge)
 - 开源许可：[`LICENSE`](LICENSE)（MIT）
