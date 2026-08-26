@@ -131,7 +131,10 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
             return Err("移除 profile 残留依赖失败（manifest 不可写）".to_owned());
         }
         run_install_robust(opts).await?;
-        ran_adds.push(format!("依赖迁移：移出 {} 并重建 node_modules", stale.join(", ")));
+        ran_adds.push(format!(
+            "依赖迁移：移出 {} 并重建 node_modules",
+            stale.join(", ")
+        ));
     }
 
     // 3) bridge 只判存在性（版本随壳同号，缺了才补）。失败不阻塞：桥接插件是
@@ -306,8 +309,7 @@ fn ensure_profile_structure(dir: &Path) -> Result<bool, String> {
         }
     }
     for name in &current {
-        if REQUIRED_BUNDLES.contains(&name.as_str()) || OBSOLETE_PACKAGES.contains(&name.as_str())
-        {
+        if REQUIRED_BUNDLES.contains(&name.as_str()) || OBSOLETE_PACKAGES.contains(&name.as_str()) {
             continue;
         }
         if !target.contains(name) {
@@ -735,7 +737,9 @@ if (pkg && pkg.includes('FAILONCE')) {
             bin_js: stub,
             pnpm_dir: profile.join("pnpm-stub"),
         };
-        add_profile_plugin(&opts, "@linxin666/dsh-ssh@FAILONCE").await.unwrap();
+        add_profile_plugin(&opts, "@linxin666/dsh-ssh@FAILONCE")
+            .await
+            .unwrap();
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
         assert_eq!(
             log.matches("@linxin666/dsh-ssh@FAILONCE").count(),
@@ -829,7 +833,11 @@ if (pkg && pkg.includes('FAILONCE')) {
             r#"{"name":"dsh-profile-desktop","private":true,"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0","dshmarket":"1.31.1"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@cjiaojiao/dsh-desk-bridge","dshmarket"]}}}"#,
         )
         .unwrap();
-        fs::write(profile.join("cordis.patch.yml"), DEFAULT_PLUGIN_PATCH_OVERRIDES).unwrap();
+        fs::write(
+            profile.join("cordis.patch.yml"),
+            DEFAULT_PLUGIN_PATCH_OVERRIDES,
+        )
+        .unwrap();
         let stub = write_stub(&tmp);
         let opts = init_options(&profile, &stub);
         let outcome = ensure_profile_init(&opts).await.unwrap();
@@ -913,7 +921,13 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(bundles_of(&profile).contains(&"@deepseek-ai/dsh-web-app".to_string()));
         // install 被调用过一次（重建 node_modules 清理全家桶）。
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
-        assert_eq!(log.trim().lines().filter(|l| l.ends_with(" install")).count(), 1);
+        assert_eq!(
+            log.trim()
+                .lines()
+                .filter(|l| l.ends_with(" install"))
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -938,7 +952,13 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(!bundles_of(&profile).contains(&"@JiaosSir/dsh-desk-bridge".to_string()));
         assert!(bundles_of(&profile).contains(&"@cjiaojiao/dsh-desk-bridge".to_string()));
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
-        assert_eq!(log.trim().lines().filter(|l| l.ends_with(" install")).count(), 1);
+        assert_eq!(
+            log.trim()
+                .lines()
+                .filter(|l| l.ends_with(" install"))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1025,7 +1045,13 @@ if (pkg && pkg.includes('FAILONCE')) {
         let opts = init_options(&profile, &stub);
         let mut ran_adds = Vec::new();
         let mut warnings = Vec::new();
-        ensure_default_plugins(&opts, &["@fake/market@FAILME"], &mut ran_adds, &mut warnings).await;
+        ensure_default_plugins(
+            &opts,
+            &["@fake/market@FAILME"],
+            &mut ran_adds,
+            &mut warnings,
+        )
+        .await;
         assert!(ran_adds.is_empty());
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("FAILME"));
@@ -1057,13 +1083,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         let opts = init_options(&profile, &stub);
         let mut ran_adds = Vec::new();
         let mut warnings = Vec::new();
-        ensure_default_plugins(
-            &opts,
-            &["bad-market@1.0.0"],
-            &mut ran_adds,
-            &mut warnings,
-        )
-        .await;
+        ensure_default_plugins(&opts, &["bad-market@1.0.0"], &mut ran_adds, &mut warnings).await;
         assert_eq!(ran_adds, vec!["bad-market@1.0.0".to_string()]);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("双副本"));

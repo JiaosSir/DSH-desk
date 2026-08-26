@@ -177,19 +177,19 @@ fn extract_tar(
         read: Rc::clone(&read),
     };
     let mut builder = tar::Archive::new(&mut reader);
-    for entry in builder.entries().map_err(|e| format!("读取 tar 失败: {e}"))? {
+    for entry in builder
+        .entries()
+        .map_err(|e| format!("读取 tar 失败: {e}"))?
+    {
         let mut entry = entry.map_err(|e| format!("读取 tar 条目失败: {e}"))?;
-        let path = entry
-            .path()
-            .map_err(|e| format!("tar 条目路径非法: {e}"))?;
+        let path = entry.path().map_err(|e| format!("tar 条目路径非法: {e}"))?;
         if !safe_entry_path(&path) {
             return Err(format!("tar 条目路径非法（穿越风险）: {}", path.display()));
         }
         let out = dest.join(&path);
         let kind = entry.header().entry_type();
         if kind.is_dir() {
-            fs::create_dir_all(&out)
-                .map_err(|e| format!("创建目录失败 {}: {e}", out.display()))?;
+            fs::create_dir_all(&out).map_err(|e| format!("创建目录失败 {}: {e}", out.display()))?;
         } else if kind.is_symlink() || kind.is_hard_link() {
             let target = entry
                 .link_name()
@@ -226,8 +226,7 @@ fn extract_tar(
             }
             let mut f =
                 File::create(&out).map_err(|e| format!("创建文件失败 {}: {e}", out.display()))?;
-            io::copy(&mut entry, &mut f)
-                .map_err(|e| format!("解压失败 {}: {e}", out.display()))?;
+            io::copy(&mut entry, &mut f).map_err(|e| format!("解压失败 {}: {e}", out.display()))?;
         }
         on_progress((read.get() as f64 / archive_len as f64).min(1.0));
     }
@@ -269,7 +268,9 @@ mod tests {
             header.set_size(data.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
-            builder.append_data(&mut header, *name, *data).expect("fixture 追加");
+            builder
+                .append_data(&mut header, *name, *data)
+                .expect("fixture 追加");
         }
         builder.into_inner().expect("fixture 收尾")
     }
@@ -280,7 +281,8 @@ mod tests {
         path
     }
 
-    const VERSION_JSON: &str = r#"{"node":"24.19.0","pnpm":"11.7.0","dsh":"0.1.1-rc.2","assembledAt":"x"}"#;
+    const VERSION_JSON: &str =
+        r#"{"node":"24.19.0","pnpm":"11.7.0","dsh":"0.1.1-rc.2","assembledAt":"x"}"#;
 
     fn progress() -> Vec<f64> {
         Vec::new()
@@ -305,7 +307,10 @@ mod tests {
         );
         assert!(!cache_matches(&cache, &expected), "版本漂移不匹配");
         write_asset(&cache, "VERSION.json", b"{ broken");
-        assert!(!cache_matches(&cache, &expected), "损坏 VERSION.json 不匹配");
+        assert!(
+            !cache_matches(&cache, &expected),
+            "损坏 VERSION.json 不匹配"
+        );
     }
 
     #[test]
@@ -320,14 +325,15 @@ mod tests {
         let cache = tmp.path().join("cache");
 
         let mut calls = progress();
-        let out = ensure_cached_sidecar(&archive, &version_file, &cache, |p| calls.push(p)).unwrap();
+        let out =
+            ensure_cached_sidecar(&archive, &version_file, &cache, |p| calls.push(p)).unwrap();
         assert_eq!(out, cache);
         assert!(cache.join("node/node.exe").exists(), "node.exe 应解出");
-        assert!(calls.last().copied().unwrap_or(0.0) > 0.9, "进度应收尾到 1.0");
         assert!(
-            calls.windows(2).all(|w| w[0] <= w[1]),
-            "进度应单调非降"
+            calls.last().copied().unwrap_or(0.0) > 0.9,
+            "进度应收尾到 1.0"
         );
+        assert!(calls.windows(2).all(|w| w[0] <= w[1]), "进度应单调非降");
 
         // 删除归档后再次调用：命中缓存，不再需要归档。
         fs::remove_file(&archive).unwrap();
@@ -410,8 +416,7 @@ mod tests {
         let fixture = builder.into_inner().expect("夹具收尾");
 
         let archive = write_asset(tmp.path(), "sidecar-dist.tar", &fixture);
-        let version_file =
-            write_asset(tmp.path(), "sidecar-version.json", VERSION_JSON.as_bytes());
+        let version_file = write_asset(tmp.path(), "sidecar-version.json", VERSION_JSON.as_bytes());
         let cache = tmp.path().join("cache");
         ensure_cached_sidecar(&archive, &version_file, &cache, |_| {}).unwrap();
 
@@ -434,6 +439,9 @@ mod tests {
         assert!(!safe_entry_path(Path::new("../evil.txt")));
         assert!(!safe_entry_path(Path::new("a/../b")));
         assert!(!safe_entry_path(Path::new("/abs")));
-        assert!(!safe_entry_path(Path::new("..\\evil.txt")), "Windows 反斜杠同样拒绝");
+        assert!(
+            !safe_entry_path(Path::new("..\\evil.txt")),
+            "Windows 反斜杠同样拒绝"
+        );
     }
 }
