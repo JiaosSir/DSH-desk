@@ -36,6 +36,37 @@ pub const REQUIRED_BUNDLES: [&str; 2] = ["@deepseek-ai/dsh-base", "@deepseek-ai/
 /// 初始化时从 bundles 与 dependencies 两处清理。
 pub const OBSOLETE_PACKAGES: [&str; 1] = ["@JiaosSir/dsh-desk-bridge"];
 
+/// 默认随装插件（`name@spec`，缺则 add，失败只 warning 不阻塞启动，与
+/// bridge 同语义）。目前：dsh-market 插件市场（`dshmarket`）。
+///
+/// 选型约束（2026-08-26 调研 `examples/dsh-market-main` 源码）：
+/// - **依赖必须干净**（dependencies 不得含 `@deepseek-ai/*`——装了会重蹈
+///   双副本 Symbol 分裂事故；dshmarket 仅依赖 js-yaml/undici，通过）；
+/// - 宿主半部必须能从 argv 的 `--profile` 解析激活 profile（dshmarket 的
+///   `argvProfile()` 原生支持，桌面启动命令 `--profile desktop` 自动命中）；
+/// - 安装命令经 `dshArgv()` 用宿主自身的 node + bin.js 重入（不依赖系统
+///   安装的 dsh）。
+pub const DEFAULT_PLUGINS: [&str; 1] = ["dshmarket@1.31.1"];
+
+/// 默认插件需要的用户层 patch 配置（按行 `- id: <name>` 定向行配置，写进
+/// profile 的 `cordis.patch.yml`，幂等）。
+///
+/// dsh-market 必须禁用它自带的「重启宿主」：`scheduleRestart` 会让 sidecar
+/// 自杀并 spawn 一个 detached 孤儿宿主进程，绕过壳监督器（桌面由壳负责
+/// 重启，参考项目同样强制 `allowRestart: false`）；`profile: desktop` 显式
+/// 钉死安装目标（防御未来启动方式变化导致 argv 解析失效）。
+///
+/// 注意：必须用 `concat!` 而非 `\` 续行——续行符会吃掉行首缩进，生成的
+/// `config:` 会变成顶层键导致 YAML 解析失败（2026-08-26 实测事故）。
+pub const DEFAULT_PLUGIN_PATCH_OVERRIDES: &str = concat!(
+    "# DSH-desk 生成的用户层 patch：默认插件的桌面环境配置。\n",
+    "# dsh-market：桌面由壳监督宿主生命周期，禁用市场自带重启（防孤儿进程）。\n",
+    "- id: dsh-market\n",
+    "  config:\n",
+    "    allowRestart: false\n",
+    "    profile: desktop\n",
+);
+
 /// 初始化参数：所有外部路径与版本由壳注入，便于离线单测（桩 node + 桩 bin.js）。
 #[derive(Debug, Clone)]
 pub struct InitOptions {
@@ -112,7 +143,127 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
             Err(e) => warnings.push(format!("bridge add 失败（不阻塞启动）: {e}")),
         }
     }
+
+    // 4) 默认随装插件（如 dsh-market 插件市场）：缺则 add，失败不阻塞。
+    ensure_default_plugins(opts, &DEFAULT_PLUGINS, &mut ran_adds, &mut warnings).await;
+
+    // 5) 默认插件的用户层 patch 配置（幂等）：dsh-market 禁用自带重启 +
+    //    显式钉激活 profile。
+    if ensure_user_patch_overrides(&opts.profile_dir)? {
+        ran_adds.push("用户层 patch：默认插件桌面配置".to_owned());
+    }
     Ok(ProfileInitOutcome { ran_adds, warnings })
+}
+
+/// 默认随装插件：缺则 `add <spec>`（失败修复 allowBuilds 占位符后重试一次），
+/// 成功后再做依赖审查——插件自身 dependencies 不得含 `@deepseek-ai/*`
+/// （会把核心包装进 profile 的 node_modules，宿主双副本 Symbol 分裂，见
+/// [`REQUIRED_BUNDLES`]），违规只记 warning（不卸载，交给用户决定）。
+/// 失败与违规都不阻塞启动。
+async fn ensure_default_plugins(
+    opts: &InitOptions,
+    plugins: &[&str],
+    ran_adds: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let deps = read_dependencies(&opts.profile_dir).unwrap_or_default();
+    for spec in plugins {
+        let name = spec.split('@').next().unwrap_or(spec);
+        if deps.contains_key(name) {
+            continue;
+        }
+        match run_add_robust(opts, spec).await {
+            Ok(()) => {
+                ran_adds.push(spec.to_string());
+                if let Some(violation) = bundled_dependency_violation(&opts.profile_dir, name) {
+                    warnings.push(format!(
+                        "默认插件 {name} 的 dependencies 含 {}（可能造成宿主双副本，建议更换插件或手动移除该依赖）: {violation}",
+                        "@deepseek-ai/*".to_owned()
+                    ));
+                }
+            }
+            Err(e) => warnings.push(format!("默认插件 {name} add 失败（不阻塞启动）: {e}")),
+        }
+    }
+}
+
+/// 依赖审查：读取 `<dir>/node_modules/<name>/package.json` 的 dependencies，
+/// 返回其中 `@deepseek-ai/` 前缀的包名列表（空 = 干净）。包未安装或不可读
+/// 视为干净（add 后必然已安装，防御性处理）。
+fn bundled_dependency_violation(dir: &Path, name: &str) -> Option<String> {
+    let manifest_path = dir.join("node_modules").join(name).join("package.json");
+    let text = std::fs::read_to_string(&manifest_path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let violations: Vec<&str> = value
+        .get("dependencies")
+        .and_then(|d| d.as_object())
+        .map(|deps| {
+            deps.keys()
+                .filter(|k| k.starts_with("@deepseek-ai/"))
+                .map(String::as_str)
+                .collect()
+        })
+        .unwrap_or_default();
+    if violations.is_empty() {
+        None
+    } else {
+        Some(violations.join(", "))
+    }
+}
+
+/// 确保 profile 用户层 patch（`cordis.patch.yml`）包含默认插件的配置块
+///（幂等）。文件不存在则创建；内容为空数组（`[]`）则整体替换；已含
+/// `- id: dsh-market` 且含 `allowRestart: false` 则跳过（用户已配置/已修复）；
+/// 含 `- id: dsh-market` 但缺 `allowRestart: false`（早期版本生成的缩进损坏
+/// 文件或用户配置不完整）则整体替换为标准块——桌面环境禁用市场自带重启是
+/// 安全要求（防孤儿进程），优先于用户自定义。返回是否写入。
+fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
+    let patch_path = dir.join("cordis.patch.yml");
+    let marker = "- id: dsh-market";
+    let text = match std::fs::read_to_string(&patch_path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::write(&patch_path, DEFAULT_PLUGIN_PATCH_OVERRIDES)
+                .map_err(|e| format!("写入 {} 失败: {e}", patch_path.display()))?;
+            return Ok(true);
+        }
+        Err(e) => return Err(format!("读取 {} 失败: {e}", patch_path.display())),
+    };
+    if text.contains(marker) {
+        // 仅当缩进完整的标准配置已存在（`config:` 为两空格子键、allowRestart
+        // 为四空格）才跳过。早期版本生成的缩进损坏文件（`config:` 在顶层，
+        // 无缩进）虽然也含 `allowRestart: false` 字样，但不含此形态，会被
+        // 整体重写——桌面环境禁用市场自带重启是安全要求（防孤儿进程）。
+        let correctly_configured =
+            text.contains("\n  config:") && text.contains("\n    allowRestart: false");
+        if correctly_configured {
+            return Ok(false);
+        }
+        // 损坏/不完整版本：整体替换为标准块。
+        std::fs::write(&patch_path, DEFAULT_PLUGIN_PATCH_OVERRIDES)
+            .map_err(|e| format!("写入 {} 失败: {e}", patch_path.display()))?;
+        return Ok(true);
+    }
+    // 空数组形态（注释 + `[]`，harness 默认模板）：整体替换为配置块。
+    let without_comments: String = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if without_comments.trim() == "[]" {
+        std::fs::write(&patch_path, DEFAULT_PLUGIN_PATCH_OVERRIDES)
+            .map_err(|e| format!("写入 {} 失败: {e}", patch_path.display()))?;
+        return Ok(true);
+    }
+    // 已有其他配置行（数组形态）：末尾追加配置块。
+    let mut updated = text;
+    if !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(DEFAULT_PLUGIN_PATCH_OVERRIDES);
+    std::fs::write(&patch_path, updated)
+        .map_err(|e| format!("写入 {} 失败: {e}", patch_path.display()))?;
+    Ok(true)
 }
 
 /// 确保 profile manifest 存在且 bundles 结构正确（安装层前置、去重、废弃名
@@ -637,6 +788,8 @@ if (pkg && pkg.includes('FAILONCE')) {
             vec![
                 "bundles 登记（dsh-base + web-app）".to_string(),
                 "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
+                "dshmarket@1.31.1".to_string(),
+                "用户层 patch：默认插件桌面配置".to_string(),
             ]
         );
         assert!(outcome.warnings.is_empty());
@@ -647,7 +800,18 @@ if (pkg && pkg.includes('FAILONCE')) {
         );
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
         let lines: Vec<&str> = log.trim_end().split('\n').collect();
-        assert_eq!(lines, vec!["desktop @cjiaojiao/dsh-desk-bridge@0.1.0"]);
+        assert_eq!(
+            lines,
+            vec![
+                "desktop @cjiaojiao/dsh-desk-bridge@0.1.0",
+                "desktop dshmarket@1.31.1",
+            ]
+        );
+        // 默认插件的用户层 patch：dsh-market 禁用自带重启 + 钉激活 profile。
+        let patch = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert!(patch.contains("- id: dsh-market"));
+        assert!(patch.contains("allowRestart: false"));
+        assert!(patch.contains("profile: desktop"));
     }
 
     #[tokio::test]
@@ -658,12 +822,14 @@ if (pkg && pkg.includes('FAILONCE')) {
         let tmp = TempDir::new().unwrap();
         let profile = tmp.path().join("desktop");
         fs::create_dir_all(&profile).unwrap();
-        // 理想终态：dependencies 只有 bridge，bundles 含安装层 + bridge。
+        // 理想终态：dependencies 只有 bridge + 默认插件，bundles 含安装层，
+        // 用户层 patch 已含默认插件配置。
         fs::write(
             profile.join("package.json"),
-            r#"{"name":"dsh-profile-desktop","private":true,"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@cjiaojiao/dsh-desk-bridge"]}}}"#,
+            r#"{"name":"dsh-profile-desktop","private":true,"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0","dshmarket":"1.31.1"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@cjiaojiao/dsh-desk-bridge","dshmarket"]}}}"#,
         )
         .unwrap();
+        fs::write(profile.join("cordis.patch.yml"), DEFAULT_PLUGIN_PATCH_OVERRIDES).unwrap();
         let stub = write_stub(&tmp);
         let opts = init_options(&profile, &stub);
         let outcome = ensure_profile_init(&opts).await.unwrap();
@@ -689,8 +855,8 @@ if (pkg && pkg.includes('FAILONCE')) {
         let opts = init_options(&profile, &stub);
         let outcome = ensure_profile_init(&opts).await.unwrap();
         assert_eq!(
-            outcome.ran_adds,
-            vec!["bundles 登记（dsh-base + web-app）".to_string()]
+            outcome.ran_adds.first(),
+            Some(&"bundles 登记（dsh-base + web-app）".to_string())
         );
         assert!(outcome.warnings.is_empty());
         // 安装层补齐；bridge 进 bundles 由 harness 的 reconcile 负责（真实
@@ -699,7 +865,8 @@ if (pkg && pkg.includes('FAILONCE')) {
             bundles_of(&profile),
             vec!["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
         );
-        assert!(!tmp.path().join("adds.log").exists());
+        let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
+        assert!(log.contains("desktop dshmarket@1.31.1"));
     }
 
     #[tokio::test]
@@ -772,5 +939,134 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(bundles_of(&profile).contains(&"@cjiaojiao/dsh-desk-bridge".to_string()));
         let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
         assert_eq!(log.trim().lines().filter(|l| l.ends_with(" install")).count(), 1);
+    }
+
+    #[test]
+    fn 用户层patch_幂等_已有配置不重复写() {
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // 用户已手写 dsh-market 配置（带自定义注释）：不得改写。
+        let existing = "# 用户自定义\n- id: dsh-market\n  config:\n    allowRestart: false\n";
+        fs::write(profile.join("cordis.patch.yml"), existing).unwrap();
+        assert!(!ensure_user_patch_overrides(&profile).unwrap());
+        let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert_eq!(text, existing);
+    }
+
+    #[test]
+    fn 用户层patch_空数组形态整体替换() {
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // harness 默认模板：注释 + `[]`。追加行会让 YAML 非法，必须整体替换。
+        fs::write(
+            profile.join("cordis.patch.yml"),
+            "# dsh profile root — an empty entry list.\n[]\n",
+        )
+        .unwrap();
+        assert!(ensure_user_patch_overrides(&profile).unwrap());
+        let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert!(text.contains("- id: dsh-market"));
+        assert!(text.contains("allowRestart: false"));
+        assert!(!text.contains("[]"));
+    }
+
+    #[test]
+    fn 用户层patch_不存在时创建() {
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        assert!(ensure_user_patch_overrides(&profile).unwrap());
+        let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert!(text.contains("- id: dsh-market"));
+        assert!(text.contains("profile: desktop"));
+        // 缩进必须完整：`config:` 是 `- id:` 的子键（两个空格缩进），
+        // 缺失会导致 YAML 解析失败（2026-08-26 实测事故）。
+        assert!(text.contains("\n  config:\n"));
+        assert!(text.contains("\n    allowRestart: false\n"));
+        // 再次调用：幂等。
+        assert!(!ensure_user_patch_overrides(&profile).unwrap());
+    }
+
+    #[test]
+    fn 用户层patch_损坏版本_整体替换() {
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // 早期版本 bug 生成的缩进损坏文件：`config:` 无缩进（顶层键），
+        // YAML 非法。虽然文本含 `allowRestart: false` 字样，也必须重写。
+        fs::write(
+            profile.join("cordis.patch.yml"),
+            "# DSH-desk 生成的用户层 patch：默认插件的桌面环境配置。\n# dsh-market：桌面由壳监督宿主生命周期，禁用市场自带重启（防孤儿进程）。\n- id: dsh-market\nconfig:\nallowRestart: false\nprofile: desktop\n",
+        )
+        .unwrap();
+        assert!(ensure_user_patch_overrides(&profile).unwrap());
+        let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert!(text.contains("\n  config:\n"));
+        assert!(text.contains("\n    allowRestart: false\n"));
+        assert!(!text.contains("\nconfig:\n"));
+    }
+
+    #[tokio::test]
+    async fn 默认插件_add失败_不阻塞() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        fs::write(
+            profile.join("package.json"),
+            r#"{"dependencies":{},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app"]}}}"#,
+        )
+        .unwrap();
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profile, &stub);
+        let mut ran_adds = Vec::new();
+        let mut warnings = Vec::new();
+        ensure_default_plugins(&opts, &["@fake/market@FAILME"], &mut ran_adds, &mut warnings).await;
+        assert!(ran_adds.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("FAILME"));
+        assert!(warnings[0].contains("不阻塞启动"));
+    }
+
+    #[tokio::test]
+    async fn 默认插件_依赖含deepseek核心包时warning() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        fs::write(
+            profile.join("package.json"),
+            r#"{"dependencies":{},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app"]}}}"#,
+        )
+        .unwrap();
+        // add 成功后（stub 不建目录，手动模拟）插件携带 @deepseek-ai 依赖。
+        let pkg_dir = profile.join("node_modules").join("bad-market");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(
+            pkg_dir.join("package.json"),
+            r#"{"name":"bad-market","version":"1.0.0","dependencies":{"@deepseek-ai/dsh-tools":"0.1.1-rc.2","js-yaml":"^4.1.0"}}"#,
+        )
+        .unwrap();
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profile, &stub);
+        let mut ran_adds = Vec::new();
+        let mut warnings = Vec::new();
+        ensure_default_plugins(
+            &opts,
+            &["bad-market@1.0.0"],
+            &mut ran_adds,
+            &mut warnings,
+        )
+        .await;
+        assert_eq!(ran_adds, vec!["bad-market@1.0.0".to_string()]);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("双副本"));
+        assert!(warnings[0].contains("@deepseek-ai/dsh-tools"));
     }
 }
