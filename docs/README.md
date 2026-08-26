@@ -7,7 +7,7 @@ DeepSeek Harness Web UI 的 Windows 桌面分发：**用户不装 Node、不用�
 - 复用：WebView 直接加载 sidecar 的 `http://127.0.0.1:<port>`，现有 Web UI、客户端插件、Slot/主题生态 100% 复用；
 - 桥接：npm 外部插件 `@cjiaojiao/dsh-desk-bridge` 只做特性检测 + Tauri IPC 桥（`window.__DSH_DESK__`），浏览器里自动退化。
 
-设计规格：[`docs/specs/2026-08-19-desktop-shell-design.md`](specs/2026-08-19-desktop-shell-design.md)；实施计划：[`docs/plans/2026-08-19-implementation-plan.md`](plans/2026-08-19-implementation-plan.md)。
+设计规格：[`docs/specs/2026-08-19-desktop-shell-design.md`](specs/2026-08-19-desktop-shell-design.md)；实施计划：[`docs/plans/2026-08-19-implementation-plan.md`](plans/2026-08-19-implementation-plan.md)；参考项目调研：[`docs/research/2026-08-26-dsh-desktop-reference.md`](research/2026-08-26-dsh-desktop-reference.md)；「一切皆插件」架构演进方案：[`docs/plans/2026-08-26-plugin-first-architecture.md`](plans/2026-08-26-plugin-first-architecture.md)。
 
 > 状态：六个阶段（脚手架 / sidecar 与监督 / profile 与首启 / 桥接插件 / 打包发布 / 文档）全部完成。
 > 用户文档见[根 README](../README.md)（安装、SmartScreen、首启、隐私）与 [FAQ](FAQ.md)；构建与发布流程见 [dev/BUILDING.md](dev/BUILDING.md)。
