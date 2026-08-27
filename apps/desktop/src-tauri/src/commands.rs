@@ -101,11 +101,10 @@ pub fn desktop_open_logs(app: AppHandle, state: State<'_, AppState>) -> Result<(
         .map_err(|e| format!("打开日志目录失败: {e}"))
 }
 
-/// 退出桌面应用：停 sidecar 后退出进程。
+/// 退出桌面应用：停 sidecar 后退出进程（与关窗/托盘退出同路径，带确认）。
 #[tauri::command]
-pub fn desktop_quit(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let _ = state.cmd_tx.send(ShellCommand::Stop);
-    app.exit(0);
+pub fn desktop_quit(app: AppHandle) -> Result<(), String> {
+    crate::stop_host_then_exit(&app);
     Ok(())
 }
 

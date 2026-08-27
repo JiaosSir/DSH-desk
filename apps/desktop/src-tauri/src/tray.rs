@@ -26,7 +26,7 @@ pub fn init(app: &mut tauri::App) -> tauri::Result<()> {
             "toggle" => toggle_window(app),
             "restart" => restart_host(app),
             "logs" => open_logs(app),
-            "quit" => app.exit(0),
+            "quit" => crate::stop_host_then_exit(app),
             _ => {}
         })
         .build(app)?;

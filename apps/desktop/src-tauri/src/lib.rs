@@ -26,8 +26,12 @@ use crate::commands::DesktopStatus;
 pub enum ShellCommand {
     /// 重启宿主（托盘「重启宿主」/错误页「重试」）：重置尝试计数，换新端口。
     Restart,
-    /// 有意停止（退出前）。
-    Stop,
+    /// 有意停止（退出前）：`done` 在宿主已 kill、监督任务即将退出时发送，
+    /// 供退出路径等确认。进程退出时 Tauri 的全局 async runtime 不会被优雅
+    /// 关闭，监督任务不会被取消、`Supervisor::drop` 不执行——直接 exit 会留
+    /// 下孤儿 sidecar（2026-08-27 事故：关窗/托盘退出后 node 宿主常驻，
+    /// 占 task-board 锁导致后续所有启动失败），必须显式 Stop 并等 kill 完成。
+    Stop { done: std::sync::mpsc::Sender<()> },
 }
 
 /// sidecar 关键路径（setup 解析一次，命令与监督任务共用）。
@@ -142,13 +146,31 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 // 规格 §7：关闭窗口默认退出进程（托盘驻留留 v1.5）。
-                // 监督任务里 Supervisor/Running 的 Drop 会 kill sidecar。
-                window.app_handle().exit(0);
+                // 必须先显式停宿主并等确认再退出：进程退出时全局 async
+                // runtime 不会取消监督任务、Supervisor::drop 不执行，直接
+                // exit 会留孤儿 sidecar（2026-08-27 事故，见 ShellCommand::Stop）。
+                stop_host_then_exit(window.app_handle());
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_, _| {});
+}
+
+/// 停宿主后退出：向监督任务发 `Stop` 并等 kill 完成（超时兜底 5s），再退出
+/// 进程。关窗 / 托盘「退出」/ 桥接 quit 三条退出路径共用。
+///
+/// 必须等确认而不是发完就跑：监督任务挂在全局 async runtime 上，进程退出
+/// 时任务不会被取消、`Supervisor::drop` 不会执行（孤儿 sidecar 事故
+/// 2026-08-27）；`recv_timeout` 兜底保证监督任务不可达时最多拖 5s。
+/// 监督任务不可达时宿主必然尚未拉起（任务在 init 阶段就退了），无孤儿风险。
+pub(crate) fn stop_host_then_exit(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    if state.cmd_tx.send(ShellCommand::Stop { done: tx }).is_ok() {
+        let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+    }
+    app.exit(0);
 }
 
 /// 监督任务主循环：spawn → 等就绪 → 导航；崩溃/端口冲突换端口重试。
@@ -285,8 +307,16 @@ async fn supervisor_task(
                     let _ = sup.wait().await; // 回收 Stopped
                     set_status(&status, DesktopStatus::starting());
                 }
-                Some(ShellCommand::Stop) | None => {
+                Some(ShellCommand::Stop { done }) => {
                     let _ = shell_log.append("收到停止请求，退出监督");
+                    sup.stop();
+                    let _ = sup.wait().await; // 回收 Stopped
+                    let _ = done.send(()); // 退出路径等这个确认才 exit
+                    return;
+                }
+                None => {
+                    // 命令通道关闭（所有发送端已 drop）：同样停宿主再退。
+                    let _ = shell_log.append("命令通道关闭，退出监督");
                     sup.stop();
                     let _ = sup.wait().await;
                     return;
