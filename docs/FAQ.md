@@ -1,6 +1,5 @@
 # DSH-desk 常见问题（FAQ）
-
-> 面向普通用户；开发者问题见 [开发者文档](README.md) 与 [BUILDING](dev/BUILDING.md)。
+中文|[Engliish](FAQ.en.md)
 > 日志是排查问题的第一手资料，大部分故障按本文指引**先看日志**（[日志在哪](#日志在哪怎么给开发者)）。
 
 ## 目录

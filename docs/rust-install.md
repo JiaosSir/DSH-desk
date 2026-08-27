@@ -1,4 +1,5 @@
 # 安装 Rust（cargo）
+中文|[Engliish](rust-install.en.md)
 
 ## 1. 下载并安装
 
