@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 pub const WEB_APP_PACKAGE: &str = "@deepseek-ai/dsh-web-app";
 pub const BRIDGE_PACKAGE: &str = "@cjiaojiao/dsh-desk-bridge";
 
+/// bridge 包的发布版本（与壳版本解耦、独立发布）；缺省安装 spec 为
+/// `BRIDGE_PACKAGE@BRIDGE_PACKAGE_VERSION`。
+pub const BRIDGE_PACKAGE_VERSION: &str = "0.1.0";
+
 /// desktop profile 的安装层（与 web profile 模板同构）：只登记进
 /// `dsh.profile.bundles`、绝不 `pnpm add`——add 会把 web-app 的依赖全家桶装进
 /// profile 的 node_modules，宿主核心插件双副本加载、Symbol 分裂、工具调用崩溃。
@@ -60,7 +64,7 @@ pub struct InitOptions {
     pub pnpm_dir: PathBuf,
     /// 钉死的 harness 版本（与 sidecar 一致，保留供诊断/未来校验）。
     pub dsh_version: String,
-    /// bridge 安装 spec（env `DSH_DESK_BRIDGE_SPEC` 优先，缺省 `@cjiaojiao/dsh-desk-bridge@<壳版本>`）。
+    /// bridge 安装 spec（env `DSH_DESK_BRIDGE_SPEC` 优先，缺省 `@cjiaojiao/dsh-desk-bridge@<bridge 包版本>`）。
     pub bridge_spec: String,
 }
 
@@ -120,7 +124,7 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
         ));
     }
 
-    // 3) bridge 只判存在性（版本随壳同号），缺则 add；失败不阻塞（可选增强，宿主照常可用）。
+    // 3) bridge 只判存在性（版本独立于壳），缺则 add；失败不阻塞（可选增强，宿主照常可用）。
     let deps = read_dependencies(&opts.profile_dir)?;
     if !deps.contains_key(BRIDGE_PACKAGE) {
         match run_add_robust(opts, &opts.bridge_spec).await {

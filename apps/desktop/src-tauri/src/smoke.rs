@@ -31,7 +31,9 @@ async fn smoke() -> Result<(), String> {
     let bridge_spec = std::env::var("DSH_DESK_BRIDGE_SPEC")
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| format!("@cjiaojiao/dsh-desk-bridge@{}", env!("CARGO_PKG_VERSION")));
+        .unwrap_or_else(|| {
+            format!("{}@{}", profile::BRIDGE_PACKAGE, profile::BRIDGE_PACKAGE_VERSION)
+        });
     let outcome = profile::ensure_profile_init(&profile::InitOptions {
         profile_dir: paths::profile_dir(),
         profile_name: profile::PROFILE_NAME.to_owned(),

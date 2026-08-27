@@ -1,6 +1,6 @@
 [package]
 name = "dsh-desk"
-version = "0.1.0"
+version = "1.0.0"
 description = "DSH-desk: DeepSeek Harness Web UI 的 Windows 桌面壳（Tauri 2）"
 authors = ["dsh-desk <dev@dsh-desk.local>"]
 edition = "2021"

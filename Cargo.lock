@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "desk-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dirs 6.0.0",
  "dunce",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-desk"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "desk-core",
  "open",

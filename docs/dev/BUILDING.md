@@ -14,7 +14,7 @@
 | D4 | 日志落 `~/.dsh/desktop/logs/` | `shell-YYYYMMDD.log` / `sidecar-YYYYMMDD.log`，各 1MB×2 滚动（`crates/desk-core/src/logs.rs`）；托盘与错误页均可「打开日志目录」 |
 | D5 | 等待页/错误页 = 壳内置静态资产 | `apps/desktop/dist/{index.html,error.html}` 作 `frontendDist`；就绪后由资产页自身 `location.replace(url)` 切到 sidecar（替换历史条目，返回键不回退等待页；桥接脚本上报页面类别，壳仅在页面已离开资产页/桥不可用时 `webview.navigate` 兜底） |
 | D6 | 所有 dsh 命令由壳执行，bridge 零业务逻辑 | `apps/desktop/src-tauri/src/commands.rs` 全量命令；bridge 只做特性检测 + IPC（`window.__DSH_DESK__`） |
-| D7 | bridge 与壳同号、首启钉版安装 | 包名实际为 **`@cjiaojiao/dsh-desk-bridge`**；壳首启经 `dsh plugin --profile desktop add @cjiaojiao/dsh-desk-bridge@<版本>` 安装（`<版本>` = `env!("CARGO_PKG_VERSION")`，即 `Cargo.toml` 的 `version`）；开发期 `DSH_DESK_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接 |
+| D7 | bridge 独立版本、首启钉版安装 | 包名实际为 **`@cjiaojiao/dsh-desk-bridge`**；壳首启经 `dsh plugin --profile desktop add @cjiaojiao/dsh-desk-bridge@<版本>` 安装（`<版本>` = `profile::BRIDGE_PACKAGE_VERSION`，即 `packages/dsh-desk-bridge/package.json` 的 `version`，与壳版本解耦）；开发期 `DSH_DESK_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接 |
 | D8 | 首次引导在页面内复用 web onboarding | API key 走 harness 现有机制（`~/.dsh/.env` / `.credentials.yaml`），壳只做存在性检测（`crates/desk-core/src/credentials.rs`，不读值）；**workspace 特性已移除**（`config.json` 现仅 `hotkey` / `autostart` 两字段） |
 | D9 | CI 冒烟 = `DSH_DESK_SMOKE=1` 无窗口自测 | 壳 `smoke.rs`：初始化 profile → 拉起 sidecar → 等就绪 → `GET /` 断言 200 与页面标题 → `SMOKE_OK`；驱动脚本 `scripts/smoke-desktop.mjs` |
 | D10 | 钉版常量集中一处 | `scripts/assemble-sidecar.mjs` 顶部：`NODE_VERSION` / `PNPM_VERSION` / `DSH_VERSION`（**升级点，见 §3**） |
@@ -94,7 +94,7 @@ pnpm desktop:dev
 
 ## 5. 发布流程（release.yml）
 
-**版本号策略（D7 同号）**：壳、sidecar 与 bridge 共用一个版本号，由 git tag 派生。release.yml 自动写入 `tauri.conf.json`（安装包版本）与各 npm workspace 包版本（bridge 发布版本）；**`apps/desktop/src-tauri/Cargo.toml` 的 `version` 必须手工同步为 tag 版本**——它经 `env!("CARGO_PKG_VERSION")` 决定壳首启安装 bridge 的 spec（`@cjiaojiao/dsh-desk-bridge@<该版本>`），不同步则升级发布后壳仍装旧版 bridge。仓库基线 `0.1.0`。
+**版本号策略**：壳与 sidecar 共用版本号（由 git tag 派生）；bridge 独立版本（`packages/dsh-desk-bridge/package.json` 的 `version`，壳侧经 `profile::BRIDGE_PACKAGE_VERSION` 读取，与壳版本解耦）。release.yml 自动写入 `tauri.conf.json`（安装包版本）与各 npm workspace 包版本（bridge 发布版本）；**`apps/desktop/src-tauri/Cargo.toml` 的 `version` 必须手工同步为 tag 版本**。仓库基线：壳 `1.0.0`、bridge `0.1.0`。
 
 发布步骤：
 

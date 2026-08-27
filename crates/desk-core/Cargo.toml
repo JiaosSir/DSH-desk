@@ -1,6 +1,6 @@
 [package]
 name = "desk-core"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "desk-core: sidecar supervision, port negotiation, profile initialization, and rolling logs (no tauri dependency)"
 license = "MIT"

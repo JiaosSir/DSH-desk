@@ -72,7 +72,7 @@ node scripts/assemble-sidecar.mjs --force   # 强制重建
 
 ## 初始化 desktop profile（名字 `DSHdesk`；壳自动；开发期可手动预演）
 
-壳在首启会全自动完成此步（幂等）：登记安装层 bundles（`dsh-base` + `dsh-web-app`，**只登记进 `dsh.profile.bundles`，绝不 `pnpm add`**——add 会把 web-app 的 90+ 依赖全家桶装进 profile 的 node_modules，宿主启动时核心插件双副本加载、Symbol 分裂、工具调用崩溃，2026-08-26 桌面 glob 工具事故即此因；web-app 版本由 sidecar 解析决定），bridge 缺则 `add`（spec = `DSH_DESK_BRIDGE_SPEC` 环境变量优先，缺省 `@cjiaojiao/dsh-desk-bridge@<壳版本>`），默认插件（`dshmarket@1.31.1` 插件市场）缺则 `add`；历史残留（dependencies 里的 web-app / 废弃包名 `@JiaosSir/dsh-desk-bridge`）自动迁移清理；旧 profile 名 `desktop` 自动迁移为 `DSHdesk`。首次 add 时自动修复 `pnpm-workspace.yaml` 的 `allowBuilds` 占位符（`koffi: true` + 补 `node-pty: true`）。
+壳在首启会全自动完成此步（幂等）：登记安装层 bundles（`dsh-base` + `dsh-web-app`，**只登记进 `dsh.profile.bundles`，绝不 `pnpm add`**——add 会把 web-app 的 90+ 依赖全家桶装进 profile 的 node_modules，宿主启动时核心插件双副本加载、Symbol 分裂、工具调用崩溃，2026-08-26 桌面 glob 工具事故即此因；web-app 版本由 sidecar 解析决定），bridge 缺则 `add`（spec = `DSH_DESK_BRIDGE_SPEC` 环境变量优先，缺省 `@cjiaojiao/dsh-desk-bridge@<bridge 包版本>`），默认插件（`dshmarket@1.31.1` 插件市场）缺则 `add`；历史残留（dependencies 里的 web-app / 废弃包名 `@JiaosSir/dsh-desk-bridge`）自动迁移清理；旧 profile 名 `desktop` 自动迁移为 `DSHdesk`。首次 add 时自动修复 `pnpm-workspace.yaml` 的 `allowBuilds` 占位符（`koffi: true` + 补 `node-pty: true`）。
 
 开发期手动预演（只需预演 bridge 的 add；安装层由壳登记）：
 
@@ -83,7 +83,7 @@ $env:Path = "$side\pnpm;" + $env:Path
 & "$side\node\node.exe" "$side\node_modules\@deepseek-ai\dsh\lib\bin.js" plugin --profile DSHdesk add "@cjiaojiao/dsh-desk-bridge@0.1.0"
 ```
 
-（bridge spec 缺省版本 = `apps/desktop/src-tauri/Cargo.toml` 的 `version`，经 `env!("CARGO_PKG_VERSION")` 注入；开发期可用 `DSH_DESK_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接。）
+（bridge spec 缺省版本 = `packages/dsh-desk-bridge/package.json` 的 `version`，经常量 `BRIDGE_PACKAGE_VERSION` 读取，与壳版本解耦；开发期可用 `DSH_DESK_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接。）
 
 初始化后 `~/.dsh/profiles/DSHdesk/package.json` 的终态（bundles 含安装层 + bridge + dshmarket，dependencies 只有 bridge + dshmarket）：
 
