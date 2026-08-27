@@ -2,15 +2,13 @@
 
 use std::sync::OnceLock;
 
-/// 匹配就绪 URL 行的正则（与官方 e2e 同构：`/dsh web: (http:\/\/[^\s]+)/`）。
+/// 匹配就绪 URL 行的正则（与官方 e2e 同构）。
 fn ready_url_regex() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     RE.get_or_init(|| regex::Regex::new(r"dsh web: (http://[^\s]+)").expect("常量正则必须合法"))
 }
 
-/// 从累计输出中抓取就绪 URL。harness 的就绪行形如
-/// `dsh web: http://127.0.0.1:<port>`（可能带 ` (LAN: http://…:port)` 后缀）；
-/// 捕获组只取第一个 URL，因此 LAN 后缀不影响结果。
+/// 从累计输出中抓取就绪 URL（`dsh web: <url>` 行；捕获组只取第一个 URL，LAN 后缀不影响）。
 pub fn extract_ready_url(accumulated: &str) -> Option<String> {
     ready_url_regex()
         .captures(accumulated)?

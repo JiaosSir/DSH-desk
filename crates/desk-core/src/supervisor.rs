@@ -1,13 +1,7 @@
-//! sidecar 监督状态机。
-//!
-//! 语义（与规格决策 3 对齐）：
-//! - `start(port, …)` 拉起子进程（attempt 计数 +1，重置 `stopped` 标记）；
-//! - `wait()` 消费子进程输出与退出：
-//!   - 抓到就绪 URL 行 → `Ready{url}`（并标记「已就绪」，此后崩溃视为运行中崩溃）；
-//!   - **就绪前**退出/超时 → `Exited{attempt}`，由壳换端口重试（端口冲突场景）；
-//!   - **就绪后**崩溃 → 按退避序列（1s/2s/4s）以同端口自动重启，直至耗尽上限；
-//!   - 尝试耗尽 → `Failed{reason}`（壳渲染错误页）；
-//! - `stop()` 是有意停止：kill 子进程，`wait()` 返回 `Stopped`，不再自动重启。
+//! sidecar 监督状态机（规格决策 3）：`start` 拉起子进程（attempt 计数 +1）；
+//! `wait` 消费输出与退出——就绪前退出/超时由壳换端口重试，就绪后崩溃按退避
+//! 序列（1s/2s/4s）同端口自动重启，尝试耗尽进入 `Failed`；`stop` 是有意停止，
+//! 不再自动重启。
 
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -87,17 +81,14 @@ struct Running {
 
 impl Drop for Running {
     fn drop(&mut self) {
-        // 取消安全性：wait() 被外部的 select 取消时，Running 就地析构，
-        // 必须 kill 子进程——否则留下孤儿 sidecar 与旧端口占用。
+        // 取消安全性：wait() 被 select 取消时 Running 就地析构，必须 kill 子进程（不留孤儿 sidecar 占端口）。
         let _ = self.child.start_kill();
     }
 }
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        // 监督器销毁时不留下孤儿 sidecar：尽力 kill 当前子进程。
-        // 这也让 tokio 在 Windows 上经 blocking pool 阻塞读管道的任务
-        // 随子进程退出而解除阻塞（否则 runtime 关闭会卡在排空上）。
+        // 监督器销毁时 kill 当前子进程（不留孤儿；也让 Windows 上阻塞读管道的任务随子进程退出而解除阻塞）。
         if let Some(running) = &mut self.running {
             let _ = running.child.start_kill();
         }
@@ -179,7 +170,7 @@ impl Supervisor {
         self.running.is_some() && !self.stopped
     }
 
-    /// 以指定端口拉起 sidecar。attempt 计数 +1；已有子进程时先 kill 回收。
+    /// 以指定端口拉起 sidecar（attempt 计数 +1；已有子进程先 kill 回收）。
     pub async fn start(
         &mut self,
         port: u16,
@@ -312,8 +303,7 @@ impl Supervisor {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        // GUI 壳下 node.exe（console 子系统）默认会弹独立控制台窗口；
-        // CREATE_NO_WINDOW 让 sidecar 完全隐形，输出仍走管道。
+        // GUI 壳下 node.exe（console 子系统）默认弹独立控制台窗口；CREATE_NO_WINDOW 让其隐形，输出仍走管道。
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         let mut child = cmd.spawn().map_err(|e| format!("sidecar 启动失败: {e}"))?;
@@ -516,9 +506,8 @@ mod tests {
             return;
         }
         let port = crate::ports::pick_free_port().expect("空闲端口");
-        // 打印就绪行后保持静默 1 秒再退出：就绪超时若仍计时，
-        // 会在 3s 处返回 Exited{code:None}（误杀）；真实退出在 1s 处（code 0）。
-        // ready_timeout 不能设得过小，否则 node 冷启动超过它会在就绪前误超时。
+        // 打印就绪行后保持静默 1 秒再退出：就绪超时若仍计时，会在 3s 处误杀；
+        // 真实退出在 1s 处（code 0）。ready_timeout 也不能过小，否则 node 冷启动会就绪前误超时。
         let script = format!(
             "console.log('dsh web: http://127.0.0.1:{port}'); setTimeout(()=>process.exit(0), 1000)"
         );

@@ -1,11 +1,9 @@
 /**
  * @cjiaojiao/dsh-desk-bridge —— 宿主半部。
  *
- * 一个经 bundle patch（cordis.patch.yml 把行插入 profile 树）挂进宿主进程的
- * 极简 Cordis 插件。按设计本包不含业务逻辑：宿主半部只旁听宿主事件并提供
- * /api/desktop/* 路由族；浏览器半部只做特性检测 + 调 Tauri IPC 桥。
- *
- * 不变式 3 落实点：审批旁听者**永远经 next() 委托**——桌面壳绝不回答审批，
+ * 经 bundle patch（cordis.patch.yml 把行插入 profile 树）挂进宿主进程的极简
+ * Cordis 插件：不含业务逻辑，只旁听宿主事件并提供 /api/desktop/* 路由族。
+ * 不变式 3 落实点：审批旁听者永远经 next() 委托——桌面壳绝不回答审批，
  * 只把请求镜像给 SSE 订阅者（通知镜像用）。
  * @module @cjiaojiao/dsh-desk-bridge
  */

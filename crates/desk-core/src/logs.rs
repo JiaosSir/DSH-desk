@@ -8,17 +8,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// 单文件大小上限（1 MiB）。
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
-/// 时间戳行写入器：`<name>-<date>.log` 满 1 MiB 后轮转为
-/// `<name>-<date>.1.log`（覆盖旧档），继续写基础文件。
-/// 日期由调用方在每次启动时决定（新的一天、新的文件）。
+/// 时间戳行写入器：基础文件满 1 MiB 时轮转为归档（覆盖旧档），继续写基础文件；
+/// 日期由调用方在启动时决定（新的一天、新文件）。
 pub struct RollingLog {
     base: PathBuf,
     archived: PathBuf,
 }
 
 impl RollingLog {
-    /// 在 `dir` 下创建滚动日志（目录不存在时自动创建）。
-    /// `name` 形如 `sidecar`；`date` 形如 `20260819`。
+    /// 在 `dir` 下创建滚动日志（目录不存在时自动创建）；`name` 形如 `sidecar`，`date` 形如 `20260819`。
     pub fn new(dir: &Path, name: &str, date: &str) -> std::io::Result<Self> {
         fs::create_dir_all(dir)?;
         Ok(Self {
@@ -51,9 +49,7 @@ impl RollingLog {
     }
 }
 
-/// 当前本地日期的紧凑形式（`YYYYMMDD`，日志文件名用）。
-/// 用 Howard Hinnant 的 civil-from-days 算法做 Unix 天数→日历换算，
-/// 避免为此引入日期依赖。
+/// 当前本地日期的紧凑形式（`YYYYMMDD`，日志文件名用）；用 civil-from-days 算法换算，免引日期依赖。
 pub fn today_compact() -> String {
     let days = SystemTime::now()
         .duration_since(UNIX_EPOCH)

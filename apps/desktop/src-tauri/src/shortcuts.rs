@@ -1,6 +1,5 @@
-//! 全局快捷键：唤起/隐藏主窗口。
-//! 缺省 `Ctrl+Alt+D`，config.json 的 `hotkey` 可改（v1 只读展示，改键 UI 留 v1.5）；
-//! 非法值回退缺省（D11）。
+//! 全局快捷键：唤起/隐藏主窗口。缺省 `Ctrl+Alt+D`，config.json 的 `hotkey`
+//! 可改（v1 只读展示）；非法值回退缺省。
 
 use std::str::FromStr;
 

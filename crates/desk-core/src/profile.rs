@@ -1,18 +1,8 @@
-//! Desktop profile initialization and the web→desktop plugin sync diff.
+//! Desktop profile 初始化与 web→desktop 插件同步差集。
 //!
-//! [`ensure_profile_init`] 是幂等的首启初始化：profile 缺 web-app 时用钉死的
-//! harness 版本 add，缺 bridge 时用 spec add。两次 add 都经 sidecar 自带
-//! node + dsh bin.js 执行（`--profile` 传 profile **名字**，不是路径），env 注入
-//! 自带 pnpm 到 PATH 头部。web-app 失败是致命错误（宿主起不来）；bridge 失败
-//! 只记 warning（桥接插件未发布/未链接时不阻塞启动，宿主照常可用）。
-//!
-//! 关键不变量：profile 里 web-app 的版本必须等于 sidecar 的 dsh 版本
-//! （否则宿主 loader 会因客户端插件版本错配而崩溃——见 2026-08-20 的
-//! `Unknown file extension ".css"` 事故），因此 web-app 的判定是**版本感知**的：
-//! 缺失或版本不符都会重新钉版。
-//!
-//! [`compute_sync_diff`] 计算 web profile 有而 desktop profile 无的插件差集，
-//! 供设置区「从 web 导入」用。
+//! [`ensure_profile_init`] 幂等首启：web-app 只登记 bundles 并钉 sidecar 同版本
+//! （版本错配会让宿主崩溃），bridge 缺则 add（失败只 warning 不阻塞启动）；
+//! [`compute_sync_diff`] 供设置区「从 web 导入」用。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -21,52 +11,31 @@ use std::path::{Path, PathBuf};
 pub const WEB_APP_PACKAGE: &str = "@deepseek-ai/dsh-web-app";
 pub const BRIDGE_PACKAGE: &str = "@cjiaojiao/dsh-desk-bridge";
 
-/// desktop profile 的安装层（bundle）名单，与 web profile 模板同构：
-/// `dsh-base` 核心 + `dsh-web-app` 浏览器载体。两层都由 sidecar 安装解析
-/// （`resolveBundleDir` 安装优先），因此**只登记进 `dsh.profile.bundles`，
-/// 绝不 `pnpm add`**：add 会把 web-app 的 dependencies 全家桶（90+ 个
-/// `@deepseek-ai/dsh-*` 核心包）装进 profile 的 node_modules，宿主启动时
-/// include 裸包名从 profile 目录解析，核心插件双副本加载、Symbol 分裂，
-/// 工具调用直接崩（2026-08-26 桌面 glob 工具 `reading 'prepare'` 事故；
-/// web profile 从不 add web-app，故 web 一直正常）。
+/// desktop profile 的安装层（与 web profile 模板同构）：只登记进
+/// `dsh.profile.bundles`、绝不 `pnpm add`——add 会把 web-app 的依赖全家桶装进
+/// profile 的 node_modules，宿主核心插件双副本加载、Symbol 分裂、工具调用崩溃。
 pub const REQUIRED_BUNDLES: [&str; 2] = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
 
-/// 废弃包名：改名前的 bridge 包。残留的 bundle 层会让 cordis 加载器撞上
-/// `duplicate loader entry id: desk-bridge`（2026-08-26 桌面启动事故）。
-/// 初始化时从 bundles 与 dependencies 两处清理。
+/// 废弃包名（改名前的 bridge）：残留的 bundle 层会让加载器撞上
+/// `duplicate loader entry id`，初始化时从 bundles 与 dependencies 两处清理。
 pub const OBSOLETE_PACKAGES: [&str; 1] = ["@JiaosSir/dsh-desk-bridge"];
 
 /// desktop profile 的名字（`dsh plugin --profile <name>` / `$DSH_HOME/profiles/<name>`）。
 /// 带品牌区分的名字，避免与生态里常见的 `desktop` 冲突。
 pub const PROFILE_NAME: &str = "DSHdesk";
 
-/// 改名前的旧 profile 名（2026-08-26 起改用 [`PROFILE_NAME`]）。启动时检测并
-/// 迁移（重命名目录，node_modules/锁文件跟随移动；会话/设置与 profile 名无关，
-/// 本就共享）。
+/// 改名前的旧 profile 名：启动时检测并整体迁移（重命名目录，
+/// node_modules/锁文件跟随移动；会话/设置与 profile 名无关，本就共享）。
 pub const LEGACY_PROFILE_NAME: &str = "desktop";
 
-/// 默认随装插件（`name@spec`，缺则 add，失败只 warning 不阻塞启动，与
-/// bridge 同语义）。目前：dsh-market 插件市场（`dshmarket`）。
-///
-/// 选型约束（2026-08-26 调研 `examples/dsh-market-main` 源码）：
-/// - **依赖必须干净**（dependencies 不得含 `@deepseek-ai/*`——装了会重蹈
-///   双副本 Symbol 分裂事故；dshmarket 仅依赖 js-yaml/undici，通过）；
-/// - 宿主半部必须能从 argv 的 `--profile` 解析激活 profile（dshmarket 的
-///   `argvProfile()` 原生支持，桌面启动命令 `--profile {PROFILE_NAME}` 自动命中）；
-/// - 安装命令经 `dshArgv()` 用宿主自身的 node + bin.js 重入（不依赖系统
-///   安装的 dsh）。
+/// 默认随装插件（`name@spec`，缺则 add、失败只 warning 不阻塞启动）。
+/// 目前为 dsh-market；选型要求：依赖干净（不得含 `@deepseek-ai/*`，防双副本）、
+/// 能从 argv 的 `--profile` 解析激活、安装命令经宿主自身的 node + bin.js 重入。
 pub const DEFAULT_PLUGINS: [&str; 1] = ["dshmarket@1.31.1"];
 
-/// 默认插件需要的用户层 patch 配置（按行 `- id: <name>` 定向行配置，写进
-/// profile 的 `cordis.patch.yml`，幂等）。
-///
-/// dsh-market 必须禁用它自带的「重启宿主」：`scheduleRestart` 会让 sidecar
-/// 自杀并 spawn 一个 detached 孤儿宿主进程，绕过壳监督器（桌面由壳负责
-/// 重启，参考项目同样强制 `allowRestart: false`）；`profile: DSHdesk` 显式
-/// 钉死安装目标（防御未来启动方式变化导致 argv 解析失效）。
-///
-/// 注意：必须用 `concat!` 而非 `\` 续行——续行符会吃掉行首缩进，生成的
-/// `config:` 会变成顶层键导致 YAML 解析失败（2026-08-26 实测事故）。
+/// 默认插件的用户层 patch 配置（`cordis.patch.yml`，幂等）：dsh-market 禁用
+/// 自带重启（桌面由壳负责重启，防孤儿进程）并显式钉死安装 profile。
+/// 必须用 `concat!` 拼接——续行符会吃掉行首缩进使 YAML 解析失败。
 pub const DEFAULT_PLUGIN_PATCH_OVERRIDES: &str = concat!(
     "# DSH-desk 生成的用户层 patch：默认插件的桌面环境配置。\n",
     "# dsh-market：桌面由壳监督宿主生命周期，禁用市场自带重启（防孤儿进程）。\n",
@@ -89,8 +58,7 @@ pub struct InitOptions {
     pub bin_js: PathBuf,
     /// sidecar 自带 pnpm 目录（注入子进程 PATH 头部）。
     pub pnpm_dir: PathBuf,
-    /// 钉死的 harness 版本（与 sidecar 一致）。web-app 的版本由 sidecar
-    /// 解析决定（bundle 层只登记包名），此值保留供诊断/未来校验。
+    /// 钉死的 harness 版本（与 sidecar 一致，保留供诊断/未来校验）。
     pub dsh_version: String,
     /// bridge 安装 spec（env `DSH_DESK_BRIDGE_SPEC` 优先，缺省 `@cjiaojiao/dsh-desk-bridge@<壳版本>`）。
     pub bridge_spec: String,
@@ -110,31 +78,21 @@ pub struct SyncDiff {
     pub missing: Vec<String>,
 }
 
-/// 幂等初始化 desktop profile。
-///
-/// web-app（与 dsh-base）只登记进 `dsh.profile.bundles`、**从不 `pnpm add`**
-/// （add 会把 web-app 的全家桶依赖装进 profile 的 node_modules，宿主核心插件
-/// 双副本加载导致 Symbol 分裂、工具调用崩溃——见 [`REQUIRED_BUNDLES`]）；
-/// 历史污染（dependencies 里残留 web-app / 废弃包名）迁移：移出 dependencies
-/// 并 `dsh plugin install` 重建 node_modules。bridge 缺则 add spec。
+/// 幂等初始化 desktop profile：web-app 只登记 bundles（绝不 add，见
+/// [`REQUIRED_BUNDLES`]）、历史污染依赖迁移清理、bridge 缺则 add。
 pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcome, String> {
     let mut ran_adds = Vec::new();
     let mut warnings = Vec::new();
 
-    // 0) 旧 profile 名迁移（desktop → DSHdesk）：重命名目录，node_modules/锁
-    //    文件跟随移动；会话/设置与 profile 名无关，本就共享。失败只 warning
-    //    （不阻塞启动，用户可手动处理）。
+    // 0) 旧 profile 名迁移（desktop → DSHdesk）：重命名目录，node_modules/锁文件跟随移动；失败只 warning。
     match migrate_legacy_profile(&opts.profile_dir) {
         Ok(Some(desc)) => ran_adds.push(format!("profile 迁移：{desc}")),
         Ok(None) => {}
         Err(e) => warnings.push(format!("旧 profile 迁移失败（不阻塞启动）: {e}")),
     }
 
-    // 0.5) 确保 profile 目录存在（全新 DSH_HOME 时 `profiles/DSHdesk` 尚不存在，
-    //    后续 fs::write 不建父目录，缺了直接 os error 3——CI 冒烟首启事故
-    //    2026-08-26；真实用户首启同样会踩中，本地开发无恙只因旧目录迁移恰好
-    //    生成了新目录）。必须放在迁移之后：先 rename 旧目录，再补建缺失目录，
-    //    否则 create_dir_all 会让迁移的 `dir.exists()` 短路判定失效。
+    // 0.5) 确保 profile 目录存在（全新 DSH_HOME 时缺失，后续 fs::write 不建父目录）。
+    //     须在迁移之后：先 rename 旧目录再补建，否则 create_dir_all 会让迁移的短路判定失效。
     std::fs::create_dir_all(&opts.profile_dir)
         .map_err(|e| format!("创建 profile 目录失败 {}: {e}", opts.profile_dir.display()))?;
 
@@ -143,9 +101,8 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
         ran_adds.push("bundles 登记（dsh-base + web-app）".to_owned());
     }
 
-    // 2) 历史污染迁移：dependencies 里残留 web-app（旧版 add 装的全家桶源头）
-    //    或废弃包名 → 移出并 install 重建 node_modules。失败是致命错误：不清
-    //    理宿主依旧双副本崩溃，错误页展示原因比启动后静默崩更诚实。
+    // 2) 历史污染迁移：dependencies 残留 web-app/废弃包名 → 移出并 install 重建
+    //    node_modules。失败是致命错误：不清理宿主依旧双副本崩溃，错误页展示原因更诚实。
     let deps = read_dependencies(&opts.profile_dir)?;
     let stale: Vec<&str> = [WEB_APP_PACKAGE]
         .into_iter()
@@ -163,8 +120,7 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
         ));
     }
 
-    // 3) bridge 只判存在性（版本随壳同号，缺了才补）。失败不阻塞：桥接插件是
-    //    可选增强（未发布/未链接时宿主照常可用），只记 warning。
+    // 3) bridge 只判存在性（版本随壳同号），缺则 add；失败不阻塞（可选增强，宿主照常可用）。
     let deps = read_dependencies(&opts.profile_dir)?;
     if !deps.contains_key(BRIDGE_PACKAGE) {
         match run_add_robust(opts, &opts.bridge_spec).await {
@@ -184,11 +140,9 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
     Ok(ProfileInitOutcome { ran_adds, warnings })
 }
 
-/// 默认随装插件：缺则 `add <spec>`（失败修复 allowBuilds 占位符后重试一次），
-/// 成功后再做依赖审查——插件自身 dependencies 不得含 `@deepseek-ai/*`
-/// （会把核心包装进 profile 的 node_modules，宿主双副本 Symbol 分裂，见
-/// [`REQUIRED_BUNDLES`]），违规只记 warning（不卸载，交给用户决定）。
-/// 失败与违规都不阻塞启动。
+/// 默认随装插件：缺则 add（失败修复 allowBuilds 占位符后重试一次）；装后审查
+/// 插件依赖不得含 `@deepseek-ai/*`（防双副本，见 [`REQUIRED_BUNDLES`]），
+/// 违规只 warning。失败与违规都不阻塞启动。
 async fn ensure_default_plugins(
     opts: &InitOptions,
     plugins: &[&str],
@@ -216,9 +170,8 @@ async fn ensure_default_plugins(
     }
 }
 
-/// 依赖审查：读取 `<dir>/node_modules/<name>/package.json` 的 dependencies，
-/// 返回其中 `@deepseek-ai/` 前缀的包名列表（空 = 干净）。包未安装或不可读
-/// 视为干净（add 后必然已安装，防御性处理）。
+/// 依赖审查：返回 `<dir>/node_modules/<name>/package.json` 的 dependencies 中
+/// `@deepseek-ai/` 前缀包名（空 = 干净）；包未安装或不可读视为干净。
 fn bundled_dependency_violation(dir: &Path, name: &str) -> Option<String> {
     let manifest_path = dir.join("node_modules").join(name).join("package.json");
     let text = std::fs::read_to_string(&manifest_path).ok()?;
@@ -240,12 +193,9 @@ fn bundled_dependency_violation(dir: &Path, name: &str) -> Option<String> {
     }
 }
 
-/// 确保 profile 用户层 patch（`cordis.patch.yml`）包含默认插件的配置块
-///（幂等）。文件不存在则创建；内容为空数组（`[]`）则整体替换；已含
-/// `- id: dsh-market` 且含 `allowRestart: false` 则跳过（用户已配置/已修复）；
-/// 含 `- id: dsh-market` 但缺 `allowRestart: false`（早期版本生成的缩进损坏
-/// 文件或用户配置不完整）则整体替换为标准块——桌面环境禁用市场自带重启是
-/// 安全要求（防孤儿进程），优先于用户自定义。返回是否写入。
+/// 确保 profile 用户层 patch（`cordis.patch.yml`）含默认插件的配置块（幂等）：
+/// 已含缩进完整的标准配置则跳过；空数组/损坏/缺配置则写标准块——桌面禁用
+/// 市场自带重启是安全要求（防孤儿进程），优先于用户自定义。返回是否写入。
 fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
     let patch_path = dir.join("cordis.patch.yml");
     let marker = "- id: dsh-market";
@@ -259,10 +209,8 @@ fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
         Err(e) => return Err(format!("读取 {} 失败: {e}", patch_path.display())),
     };
     if text.contains(marker) {
-        // 仅当缩进完整的标准配置已存在（`config:` 为两空格子键、allowRestart
-        // 为四空格）才跳过。早期版本生成的缩进损坏文件（`config:` 在顶层，
-        // 无缩进）虽然也含 `allowRestart: false` 字样，但不含此形态，会被
-        // 整体重写——桌面环境禁用市场自带重启是安全要求（防孤儿进程）。
+        // 仅当缩进完整的标准配置已存在（`config:` 两空格、allowRestart 四空格）才跳过；
+        // 早期生成的缩进损坏文件（`config:` 无缩进）虽含同字样也必须重写（安全要求优先）。
         let correctly_configured =
             text.contains("\n  config:") && text.contains("\n    allowRestart: false");
         if correctly_configured {
@@ -295,9 +243,8 @@ fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-/// 旧 profile 名迁移：`$DSH_HOME/profiles/<LEGACY_PROFILE_NAME>` 存在且新名
-/// 目录（`dir`）不存在时整体重命名（node_modules/lock 跟随目录移动）。返回
-/// 迁移描述；无迁移返回 `None`；失败返回 Err（调用方记 warning，不阻塞启动）。
+/// 旧 profile 名迁移：旧名目录存在且新名（`dir`）不存在时整体重命名；
+/// 返回迁移描述；失败由调用方记 warning（不阻塞启动）。
 fn migrate_legacy_profile(dir: &Path) -> Result<Option<String>, String> {
     let legacy = dir
         .parent()
@@ -324,8 +271,7 @@ fn ensure_profile_structure(dir: &Path) -> Result<bool, String> {
         Ok(t) => serde_json::from_str(&t)
             .map_err(|e| format!("解析 {} 失败: {e}", manifest_path.display()))?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // 全新 profile：模仿 harness initProfile 的最小 manifest
-            //（bundles 含安装层；依赖留空，由后续 bridge add / pnpm 管理）。
+            // 全新 profile：模仿 harness initProfile 的最小 manifest（bundles 含安装层，依赖留空）。
             let mut root = serde_json::Map::new();
             root.insert("name".to_owned(), serde_json::json!("dsh-profile-desktop"));
             root.insert("private".to_owned(), serde_json::json!(true));
@@ -489,7 +435,7 @@ pub async fn add_profile_plugin(opts: &PluginAddOptions, pkg: &str) -> Result<()
 }
 
 /// 经 sidecar 自带 node 执行 `dsh plugin --profile <name> add <pkg>`；
-/// env 注入自带 pnpm 到 PATH 头部 + 零遥测开关。非零退出返回带尾部输出的错误。
+/// env 注入自带 pnpm 到 PATH 头部 + 零遥测开关，非零退出返回尾部输出。
 async fn run_add(opts: &InitOptions, pkg: &str) -> Result<(), String> {
     run_plugin_parts(
         &opts.node_exe,
@@ -527,8 +473,7 @@ async fn run_install_robust(opts: &InitOptions) -> Result<(), String> {
 }
 
 /// 经 sidecar 自带 node 执行 `dsh plugin --profile <name> <args...>`（子命令
-/// 原样转发给 pnpm）；env 注入自带 pnpm 到 PATH 头部 + 零遥测开关。非零退出
-/// 返回带尾部输出的错误。
+/// 原样转发给 pnpm）；env 注入自带 pnpm 到 PATH 头部 + 零遥测开关。
 async fn run_plugin_parts(
     node_exe: &Path,
     bin_js: &Path,
@@ -575,9 +520,8 @@ async fn run_plugin_parts(
     Ok(())
 }
 
-/// 执行 add：失败时修复 allowBuilds 占位符并重试一次。全新 profile 的第一次
-/// add 必然因 harness 模板的占位符（`koffi: set this to true or false`）失败；
-/// 修复后重试即成功。
+/// 执行 add：失败时修复 allowBuilds 占位符并重试一次——全新 profile 的首次
+/// add 必因 harness 模板的占位符（`koffi: set this to true or false`）失败。
 async fn run_add_robust(opts: &InitOptions, pkg: &str) -> Result<(), String> {
     let result = run_add(opts, pkg).await;
     if result.is_ok() {
@@ -587,9 +531,9 @@ async fn run_add_robust(opts: &InitOptions, pkg: &str) -> Result<(), String> {
     run_add(opts, pkg).await
 }
 
-/// 修复 harness profile 模板里的 allowBuilds 占位符：把
-/// `koffi: set this to true or false` 换成 `koffi: true`，并补 `node-pty: true`
-/// （pnpm ≥10 会因无效布尔拒绝安装）。文件缺失视为无事（尚未初始化）。
+/// 修复 harness profile 模板里的 allowBuilds 占位符（`koffi: set this to true
+/// or false` → `true`）并补 `node-pty: true`（pnpm ≥10 会因无效布尔拒绝安装）；
+/// 文件缺失视为无事。
 fn ensure_allow_builds(profile_dir: &Path) -> Result<(), String> {
     let path = profile_dir.join("pnpm-workspace.yaml");
     let mut text = match std::fs::read_to_string(&path) {
@@ -644,10 +588,9 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    /// 桩 bin.js：解析 argv 里的 `--profile <name>` 与子命令（`add <pkg>` /
-    /// `install`），把 `name <pkg|install>` 追加到自身旁的 adds.log；pkg 含
-    /// `FAILME` 时退出 1；含 `FAILONCE` 时首次退出 1、之后成功。不触网、不真
-    /// 跑 pnpm。
+    /// 桩 bin.js：解析 argv 里的 `--profile` 与子命令（`add <pkg>` / `install`），
+    /// 把 `name <pkg|install>` 追加到 adds.log；pkg 含 `FAILME` 退出 1、
+    /// 含 `FAILONCE` 首次退出 1 之后成功。不触网、不真跑 pnpm。
     fn stub_node_script() -> &'static str {
         r#"
 const fs = require('node:fs');
@@ -871,8 +814,8 @@ if (pkg && pkg.includes('FAILONCE')) {
             return;
         }
         let tmp = TempDir::new().unwrap();
-        // 不预建 profile 目录：模拟全新 DSH_HOME（CI 冒烟 mkdtemp / 用户首启）。
-        // 回归：fs::write 不建父目录，缺了会 os error 3（2026-08-26 CI 冒烟事故）。
+        // 不预建 profile 目录：模拟全新 DSH_HOME。回归：fs::write 不建父目录，
+        // 缺了会 os error 3（CI 冒烟首启事故）。
         let profile = tmp.path().join("profiles").join(PROFILE_NAME);
         assert!(!profile.exists());
         let stub = write_stub(&tmp);
@@ -934,8 +877,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             Some(&"bundles 登记（dsh-base + web-app）".to_string())
         );
         assert!(outcome.warnings.is_empty());
-        // 安装层补齐；bridge 进 bundles 由 harness 的 reconcile 负责（真实
-        // 环境 add/install 时自动追加），此处只保证宿主可启动的安装层。
+        // 安装层补齐；bridge 进 bundles 由 harness 的 reconcile 自动追加（真实 add/install 时）。
         assert_eq!(
             bundles_of(&profile),
             vec!["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
@@ -1068,8 +1010,7 @@ if (pkg && pkg.includes('FAILONCE')) {
         let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
         assert!(text.contains("- id: dsh-market"));
         assert!(text.contains("profile: DSHdesk"));
-        // 缩进必须完整：`config:` 是 `- id:` 的子键（两个空格缩进），
-        // 缺失会导致 YAML 解析失败（2026-08-26 实测事故）。
+        // 缩进必须完整：`config:` 是 `- id:` 的子键（两空格），缺失会使 YAML 解析失败（实测事故）。
         assert!(text.contains("\n  config:\n"));
         assert!(text.contains("\n    allowRestart: false\n"));
         // 再次调用：幂等。
@@ -1081,8 +1022,8 @@ if (pkg && pkg.includes('FAILONCE')) {
         let tmp = TempDir::new().unwrap();
         let profile = tmp.path().join("desktop");
         fs::create_dir_all(&profile).unwrap();
-        // 早期版本 bug 生成的缩进损坏文件：`config:` 无缩进（顶层键），
-        // YAML 非法。虽然文本含 `allowRestart: false` 字样，也必须重写。
+        // 早期 bug 生成的缩进损坏文件：`config:` 无缩进（顶层键），YAML 非法，
+        // 虽含 `allowRestart: false` 字样也必须重写。
         fs::write(
             profile.join("cordis.patch.yml"),
             "# DSH-desk 生成的用户层 patch：默认插件的桌面环境配置。\n# dsh-market：桌面由壳监督宿主生命周期，禁用市场自带重启（防孤儿进程）。\n- id: dsh-market\nconfig:\nallowRestart: false\nprofile: DSHdesk\n",

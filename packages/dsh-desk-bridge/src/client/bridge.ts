@@ -1,9 +1,8 @@
 /**
- * 特性检测 + Tauri IPC 协议面——Web UI 与桌面壳之间唯一的桥接面。
- * 每个方法与 apps/desktop/src-tauri/src/commands.rs 里的 #[tauri::command]
- * 一一对应；壳经 initialization script 把具体对象注入为
- * window.__DSH_DESK__。纯浏览器里该全局对象不存在，所有调用方必须经
- * detectBridge 优雅退化。
+ * 特性检测 + Tauri IPC 协议面——Web UI 与桌面壳之间唯一的桥接面：方法与
+ * apps/desktop/src-tauri/src/commands.rs 的 #[tauri::command] 一一对应，壳经
+ * initialization script 注入 window.__DSH_DESK__；纯浏览器中该对象不存在，
+ * 所有调用方必须经 detectBridge 优雅退化。
  * @module @cjiaojiao/dsh-desk-bridge/client/bridge
  */
 

@@ -17,18 +17,15 @@ window.__DSH_DESK__ = {
   quit: () => window.__TAURI__.core.invoke('desktop_quit'),
   notify: (title, body) => window.__TAURI__.core.invoke('desktop_notify', { title, body }),
 };
-// 页面类别上报：本地资产页（等待页/错误页）= asset，sidecar 页面 = host。
-// 壳据此决定由页面自行 location.replace 导航（历史干净）还是 webview.navigate
-// 兜底；纯浏览器打开时 __TAURI__ 不存在，静默忽略。
+// 页面类别上报：资产页 = asset、sidecar 页 = host，壳据此决定导航方式；纯浏览器静默忽略。
 try {
   window.__TAURI__.core.invoke('desktop_page_kind', {
     kind: location.hostname === '127.0.0.1' ? 'host' : 'asset',
   }).catch(() => {});
 } catch (e) { /* ignore */ }
 
-// 宿主页历史护栏：WebView 中返回键可能落回宿主页的首次加载条目，重新触发
-// dsh 自己的启动 loading（网页版标签页没有前一条目，不会遇到）。压入一个
-// 占位条目，popstate（返回键）时把用户推回当前视图，返回键彻底无感。
+// 宿主页历史护栏：压入占位条目，返回键时把用户推回当前视图
+// （WebView 返回键会落回首次加载条目，重新触发 dsh 启动 loading）。
 if (location.hostname === '127.0.0.1') {
   try {
     history.pushState({ dshGuard: true }, '', location.href);

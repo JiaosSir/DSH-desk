@@ -1,6 +1,5 @@
-//! 冒烟自测（env `DSH_DESK_SMOKE=1` 的无窗口路径，计划 D9 / 任务 3.3）：
-//! 初始化 profile → 拉起 sidecar → 等就绪 → GET / 断言 200 与标题 → 停 sidecar。
-//!
+//! 冒烟自测（env `DSH_DESK_SMOKE=1` 的无窗口路径）：初始化 profile → 拉起
+//! sidecar → 等就绪 → GET / 断言 200 与标题 → 停 sidecar。
 //! 成功打印 `SMOKE_OK` 并 exit 0；任何失败打印 `SMOKE_FAILED: <原因>` 并 exit 1。
 
 use std::path::PathBuf;
@@ -104,16 +103,13 @@ async fn smoke() -> Result<(), String> {
     Ok(())
 }
 
-/// 冒烟 sidecar 根目录：`SIDECAR_ROOT` 环境优先；否则源码目录（构建机/CI）；
-/// 再否则生产布局——exe 旁是 sidecar-dist.tar + sidecar-version.json，先解压到
-/// 缓存目录（`DSH_DESK_SIDECAR_CACHE` 可覆盖，默认 exe 旁 sidecar-dist）。
-/// 返回值统一去过 verbatim（\\?\）前缀。
+/// 冒烟 sidecar 根目录：`SIDECAR_ROOT` 优先；否则开发构建用源码目录；
+/// 再否则生产布局（exe 旁 tar → 解压到缓存）。返回值统一去过 verbatim 前缀。
 async fn resolve_sidecar_root() -> Result<PathBuf, String> {
     if let Some(root) = paths::sidecar_root() {
         return Ok(paths::deverbatim(&root));
     }
-    // 开发构建（debug exe）用源码目录；release 冒烟强制走生产布局
-    // （exe 旁 tar → 解压到缓存），保证 CI 覆盖真实首启链路。
+    // release 冒烟强制走生产布局（exe 旁 tar → 解压缓存），保证 CI 覆盖真实首启链路。
     #[cfg(debug_assertions)]
     {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");

@@ -1,8 +1,8 @@
 /**
  * @cjiaojiao/dsh-desk-bridge —— 浏览器半部。
  *
- * 一个经 __DSH_BOOT__ 模块图由 Web 壳加载的 Cordis client 插件。有桌面桥时
- * 注册「桌面」设置区（settings.section 槽位）并订阅审批 SSE 做通知镜像；
+ * 经 __DSH_BOOT__ 模块图由 Web 壳加载的 Cordis client 插件：有桌面桥时注册
+ * 「桌面」设置区（settings.section 槽位）并订阅审批 SSE 做通知镜像；
  * 纯浏览器里退化为空操作，同一份 UI 功能保持完整。
  * @module @cjiaojiao/dsh-desk-bridge/client
  */

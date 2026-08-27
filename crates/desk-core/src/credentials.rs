@@ -1,7 +1,6 @@
-//! DeepSeek API key 存在性检测（首次引导用）：只判键名是否存在，不读值。
-//!
-//! 凭证走 harness 现有机制（规格 §6.4）：`<home>/.env` 或
-//! `<home>/.credentials.yaml`。桌面壳只问「有没有」，值永远不进入桌面进程。
+//! DeepSeek API key 存在性检测（首次引导用）：凭证走 harness 现有机制
+//! （`<home>/.env` 或 `<home>/.credentials.yaml`），只判键名是否存在、不读值，
+//! 值永远不进入桌面进程。
 
 use std::path::Path;
 

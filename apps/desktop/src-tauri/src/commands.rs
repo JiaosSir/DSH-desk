@@ -1,5 +1,4 @@
-//! 壳侧 IPC 命令：桥接插件（window.__DSH_DESK__）调用的后端实现。
-//! 阶段 2 实现首批命令；阶段 3/4 追加文件夹选择、自启、通知、Releases 等。
+//! 壳侧 IPC 命令：桥接插件（`window.__DSH_DESK__`）调用的后端实现。
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -76,9 +75,9 @@ impl DesktopStatus {
     }
 }
 
-/// 页面类别：本地资产页（等待页/错误页）与 sidecar 页面。桥接脚本在每次
-/// 页面加载时上报，壳据此决定由页面自行 `location.replace` 导航（替换历史
-/// 条目，返回键不回退等待页）还是 `webview.navigate` push 兜底。
+/// 页面类别：本地资产页（等待页/错误页）与 sidecar 页面。桥接脚本每次加载
+/// 上报，壳据此决定由页面自行 `location.replace` 导航（历史干净）还是
+/// `webview.navigate` push 兜底。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PageKind {
@@ -204,8 +203,7 @@ pub fn desktop_sync_list() -> Vec<String> {
 #[tauri::command]
 pub async fn desktop_sync_add(pkg: String, state: State<'_, AppState>) -> Result<(), String> {
     let sidecar = state.sidecar.clone();
-    // release 模式首启时缓存可能尚未解压（desktop_sync_add 只在 Web UI 就绪后可达，
-    // 防御性校验：sidecar 未就绪时给出明确错误而不是 node 启动失败）。
+    // release 首启时缓存可能尚未解压：防御性校验，sidecar 未就绪时给出明确错误而非 node 启动失败。
     if !sidecar.node_exe.exists() {
         return Err("宿主环境未就绪（sidecar 尚未就绪，请稍后重试）".to_owned());
     }

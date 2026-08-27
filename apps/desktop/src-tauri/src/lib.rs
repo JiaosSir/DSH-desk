@@ -1,10 +1,9 @@
 //! DSH-desk：DeepSeek Harness Web UI 的 Tauri 2 壳。
 //!
-//! 壳自身不含前端：`apps/desktop/dist/` 只承载本地等待页/错误页。启动时壳
-//! 监督随包分发的 harness sidecar（自带 node + 钉版 `@deepseek-ai/dsh`），
-//! 等 sidecar 打印就绪 URL 行后由等待页/错误页 `location.replace` 切换到
-//! `http://127.0.0.1:<port>`（替换历史条目，返回键不回退等待页；壳仅在页面
-//! 已离开资产页或桥不可用时 `webview.navigate` 兜底）；
+//! 壳自身不含前端：`apps/desktop/dist/` 只承载本地等待页/错误页。启动时壳监督
+//! 随包分发的 harness sidecar（自带 node + 钉版 `@deepseek-ai/dsh`），等就绪
+//! URL 行后由页面 `location.replace` 切换到 `http://127.0.0.1:<port>`（历史
+//! 干净，壳仅在页面已离开资产页或桥不可用时 `webview.navigate` 兜底）；
 //! 崩溃按退避自动重启，耗尽后展示错误页。原生能力经 `window.__DSH_DESK__`
 //! 桥暴露给 Web UI 里的桥接插件。
 
@@ -29,10 +28,9 @@ pub enum ShellCommand {
     /// 重启宿主（托盘「重启宿主」/错误页「重试」）：重置尝试计数，换新端口。
     Restart,
     /// 有意停止（退出前）：`done` 在宿主已 kill、监督任务即将退出时发送，
-    /// 供退出路径等确认。进程退出时 Tauri 的全局 async runtime 不会被优雅
-    /// 关闭，监督任务不会被取消、`Supervisor::drop` 不执行——直接 exit 会留
-    /// 下孤儿 sidecar（2026-08-27 事故：关窗/托盘退出后 node 宿主常驻，
-    /// 占 task-board 锁导致后续所有启动失败），必须显式 Stop 并等 kill 完成。
+    /// 供退出路径等确认。进程退出时 Tauri 的全局 async runtime 不会被优雅关闭、
+    /// 监督任务不被取消、`Supervisor::drop` 不执行——直接 exit 会留下孤儿
+    /// sidecar（2026-08-27 事故），必须显式 Stop 并等 kill 完成。
     Stop { done: std::sync::mpsc::Sender<()> },
 }
 
@@ -106,10 +104,9 @@ pub fn run() {
                 sidecar_version_file: layout.version_file,
                 page_kind: Arc::new(Mutex::new(None)),
             });
-            // 窗口在代码里创建：等待页之外还需注入 __DSH_DESK__ 桥。
-            // WebView 硬化：仅允许 tauri:// 本地页与本机 sidecar 源，外链交系统浏览器；
+            // 窗口在代码里创建（等待页之外还需注入 __DSH_DESK__ 桥）；
+            // WebView 硬化：仅允许本地资产页与本机 sidecar 源，外链交系统浏览器，
             // release 构建禁 devtools（规格 §6.6）。
-            // release 构建禁 devtools（规格 §6.6）；debug 下无需重赋值。
             #[allow(unused_mut)]
             let mut window_builder = tauri::WebviewWindowBuilder::new(
                 app,
@@ -121,9 +118,8 @@ pub fn run() {
             .center()
             .initialization_script(bridge::BRIDGE_SCRIPT)
             .on_navigation(|url| {
-                // 白名单：内嵌资产（tauri://localhost 与 Tauri 2 Windows 生产协议
-                // http://tauri.localhost 承载等待页/错误页）+ 本机 sidecar 源。
-                // 其余一律外链移交系统浏览器并阻断（规格 §6.6 外链转移）。
+                // 白名单：内嵌资产页（tauri:// 与 Tauri 2 Windows 的 http://tauri.localhost）
+                // + 本机 sidecar 源；其余外链移交系统浏览器并阻断（规格 §6.6）。
                 let allowed = url.scheme() == "tauri"
                     || url.host_str() == Some("127.0.0.1")
                     || url.host_str() == Some("tauri.localhost");
@@ -151,10 +147,8 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // 规格 §7：关闭窗口默认退出进程（托盘驻留留 v1.5）。
-                // 必须先显式停宿主并等确认再退出：进程退出时全局 async
-                // runtime 不会取消监督任务、Supervisor::drop 不执行，直接
-                // exit 会留孤儿 sidecar（2026-08-27 事故，见 ShellCommand::Stop）。
+                // 规格 §7：关窗默认退出进程（托盘驻留留 v1.5）；必须先显式停宿主
+                // 并等确认——进程退出时监督任务不被取消，直接 exit 会留孤儿 sidecar。
                 stop_host_then_exit(window.app_handle());
             }
         })
@@ -163,13 +157,12 @@ pub fn run() {
         .run(|_, _| {});
 }
 
-/// 停宿主后退出：向监督任务发 `Stop` 并等 kill 完成（超时兜底 5s），再退出
-/// 进程。关窗 / 托盘「退出」/ 桥接 quit 三条退出路径共用。
+/// 停宿主后退出：向监督任务发 `Stop` 并等 kill 完成（超时兜底 5s）再退出进程。
+/// 关窗 / 托盘「退出」/ 桥接 quit 三条退出路径共用。
 ///
-/// 必须等确认而不是发完就跑：监督任务挂在全局 async runtime 上，进程退出
-/// 时任务不会被取消、`Supervisor::drop` 不会执行（孤儿 sidecar 事故
-/// 2026-08-27）；`recv_timeout` 兜底保证监督任务不可达时最多拖 5s。
-/// 监督任务不可达时宿主必然尚未拉起（任务在 init 阶段就退了），无孤儿风险。
+/// 必须等确认而不是发完就跑：监督任务挂在全局 async runtime 上，进程退出时
+/// 任务不会被取消、`Supervisor::drop` 不会执行（孤儿 sidecar 事故）；任务
+/// 不可达时宿主必然尚未拉起，`recv_timeout` 兜底最多拖 5s。
 pub(crate) fn stop_host_then_exit(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let (tx, rx) = std::sync::mpsc::channel::<()>();
@@ -186,7 +179,6 @@ async fn supervisor_task(
     status: Arc<Mutex<DesktopStatus>>,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<ShellCommand>,
 ) {
-    // sidecar 路径：setup 已解析并存于 AppState。
     let sidecar = app.state::<AppState>().sidecar.clone();
     let node_exe = sidecar.node_exe;
     let bin_js = sidecar.bin_js;
@@ -222,8 +214,8 @@ async fn supervisor_task(
         return;
     }
 
-    // 首启初始化 desktop profile（幂等）：web-app 钉 sidecar 同版本、bridge 缺则补。
-    // 失败直接进错误页——宿主版本错配会崩，不能让监督循环空转。
+    // 首启初始化 desktop profile（幂等）：失败直接进错误页——宿主版本错配会崩，
+    // 不能让监督循环空转。
     if let Err(e) = initialize_profile(&sidecar.root, &node_exe, &bin_js, &shell_log).await {
         let _ = shell_log.append(&format!("profile 初始化失败: {e}"));
         set_status(&status, DesktopStatus::failed(e.clone()));
@@ -234,9 +226,8 @@ async fn supervisor_task(
     let mut sup = Supervisor::new(SupervisorOptions::default());
     sup.set_log_sink(log_tx);
 
-    // 日志转发必须是独立任务：sidecar 每行输出都会即时到达，若放进监督
-    // select 里，收日志会不断取消 sup.wait()，导致 Running 被 drop、
-    // 子进程被杀、监督循环反复重启（实测踩坑）。
+    // 日志转发放独立任务：若并入监督 select，收日志会不断取消 sup.wait()，
+    // 导致 Running 被 drop、子进程被杀、监督循环反复重启（实测踩坑）。
     tauri::async_runtime::spawn(async move {
         while let Some(line) = log_rx.recv().await {
             let _ = sidecar_log.append(&line);
@@ -332,12 +323,9 @@ async fn supervisor_task(
                 SupervisorEvent::Ready { url } => {
                     let _ = shell_log.append(&format!("宿主就绪: {url}"));
                     set_status(&status, DesktopStatus::running(url.clone()));
-                    // 资产页（等待页/错误页）由页面自身 `location.replace` 导航到
-                    // 宿主：replace 替换当前历史条目，WebView 返回键不会回退到
-                    // 等待页。壳只在页面已离开资产页（宿主崩溃重启）时直接 push
-                    // 导航；资产页场景则等待页面自导航的确认（宿主页加载后经桥
-                    // 上报 Host），超时再 push 兜底——覆盖「页面已 replace 但目标
-                    // 未加载成功（如宿主就绪后立即崩溃）」的异常。
+                    // 资产页由页面自身 `location.replace` 导航（替换历史条目，
+                    // 返回键不回退等待页）；壳只在页面已离开资产页（崩溃重启）或
+                    // replace 后未成功（宿主就绪后立即崩溃）时 push 兜底。
                     let on_asset = {
                         let page_state = app.state::<AppState>();
                         let page_kind = page_state.page_kind.lock().expect("页面状态锁");
@@ -443,8 +431,8 @@ fn resolve_sidecar_layout(app: &tauri::AppHandle) -> SidecarLayout {
             version_file: None,
         };
     }
-    // 开发构建（cargo run / tauri dev）不打包 bundle.resources，resource_dir 里
-    // 可能是过期的残缺副本；直接用源码目录（CARGO_MANIFEST_DIR）下的 sidecar-dist。
+    // 开发构建（cargo run / tauri dev）不打包 bundle.resources：resource_dir 可能是
+    // 过期的残缺副本，直接用源码目录（CARGO_MANIFEST_DIR）下的 sidecar-dist。
     #[cfg(debug_assertions)]
     {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecar-dist");
@@ -456,8 +444,7 @@ fn resolve_sidecar_layout(app: &tauri::AppHandle) -> SidecarLayout {
             };
         }
     }
-    // 生产构建：缓存目录 + 打包资产。缓存放在 app_local_data_dir（用户可写），
-    // 安装目录只读也不影响首启解压。
+    // 生产构建：缓存放 app_local_data_dir（用户可写，安装目录只读不影响首启解压）。
     let cache_dir = desk_core::sidecar_cache::sidecar_cache_override().unwrap_or_else(|| {
         app.path()
             .app_local_data_dir()
@@ -533,10 +520,8 @@ fn set_status(status: &Arc<Mutex<DesktopStatus>>, next: DesktopStatus) {
     *status.lock().expect("状态锁") = next;
 }
 
-/// 导航到错误页，附失败原因（URL 编码经 query 参数传递）。
-/// 资产页已上报（页面脚本可用）时由页面自行 `location.replace` 到错误页
-/// （替换历史条目，不残留等待页）；未上报（桥不可用）时壳 push 兜底，保证
-/// 错误页始终可达。
+/// 导航到错误页，附失败原因（URL 编码经 query 参数传递）。资产页可自导航时
+/// 由页面 `location.replace`（历史干净）；桥不可用时壳 push 兜底，保证可达。
 fn navigate_error(window: &tauri::WebviewWindow, reason: &str) {
     let on_asset = {
         let app = window.app_handle();

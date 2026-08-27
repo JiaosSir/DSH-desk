@@ -1,15 +1,11 @@
-//! DSH_HOME 解析与桌面自有路径布局。
-//!
-//! 与 harness 行为一致：`DSH_HOME` 环境变量优先（空/空白视为未设置），
-//! 否则回退 `~/.dsh`（见 `packages/util/home-paths` 的 resolveDshHome）。
+//! DSH_HOME 解析与桌面自有路径布局；与 harness 行为一致：`DSH_HOME` 优先
+//! （空/空白视为未设置），否则回退 `~/.dsh`。
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-/// 纯函数形式的 DSH_HOME 解析（可测，避免并发测试改环境变量）。
-///
-/// `env_home` = `DSH_HOME` 环境变量的原始值；`fallback_home` = 未设置时的
-/// 回退目录（通常 `~/.dsh`）。
+/// 纯函数形式的 DSH_HOME 解析（可测，避免并发测试改环境变量）；
+/// `env_home` 为空/空白时返回 `fallback_home`。
 pub fn resolve_dsh_home(env_home: Option<&OsStr>, fallback_home: PathBuf) -> PathBuf {
     match env_home {
         Some(v) if !v.is_empty() && !v.to_string_lossy().trim().is_empty() => PathBuf::from(v),
@@ -47,18 +43,9 @@ pub fn sidecar_root() -> Option<PathBuf> {
     std::env::var_os("SIDECAR_ROOT").map(PathBuf::from)
 }
 
-/// 去掉 Windows verbatim 前缀（`\\?\`）。
-///
-/// Tauri 的 `resource_dir()` 在 Windows 上返回 `\\?\C:\...` 形态的路径；
-/// node 用这种路径解析入口脚本时会把盘符段（如 `D:`）当文件 lstat，
-/// 触发 `EISDIR` 直接崩溃（2026-08-25 实测：sidecar 秒退、监督器三连重试）。
-/// 壳侧所有交给子进程的路径（node.exe / bin.js / pnpm 目录）都必须先过这里。
-///
-/// 实现用社区标准做法 `dunce::simplified`：qwen-code 桌面端在完全相同的
-/// 架构下（Tauri 壳 + 自带 node 运行时）踩过同一坑，修复即换 dunce
-/// （QwenLM/qwen-code#8936，起因 issue #8929）。盘符形态（`\\?\D:\...`）还原为
-/// `D:\...`；扩展长度 UNC（`\\?\UNC\...`）按 dunce 设计保持原样（壳的
-/// resource_dir 不会产生该形态）；其余平台原样返回。
+/// 去掉 Windows verbatim 前缀（`\\?\`）：Tauri 的 `resource_dir()` 返回该形态，
+/// node 解析入口脚本时会把盘符段当文件 lstat 触发 EISDIR 崩溃，壳侧交给子进程
+/// 的所有路径都必须先过这里（用社区标准做法 `dunce::simplified`）。
 pub fn deverbatim(path: &std::path::Path) -> PathBuf {
     dunce::simplified(path).to_path_buf()
 }
@@ -119,9 +106,7 @@ mod tests {
             deverbatim(std::path::Path::new(r"D:\plain\path")),
             PathBuf::from(r"D:\plain\path")
         );
-        // 扩展长度 UNC（\\?\UNC\server\share）dunce 有意保持原样
-        // （is_safe_to_strip_unc 只接受 VerbatimDisk；文档："leaves UNC paths as-is"）。
-        // 壳的 resource_dir 不会产生该形态，此断言只是固化行为约定。
+        // 扩展长度 UNC（\\?\UNC\...）dunce 有意保持原样；壳的 resource_dir 不会产生该形态，仅固化行为约定。
         assert_eq!(
             deverbatim(std::path::Path::new(r"\\?\UNC\server\share\dir")),
             PathBuf::from(r"\\?\UNC\server\share\dir")

@@ -1,7 +1,6 @@
-//! sidecar 打包资产缓存（方案 A）：release 构建只携带 `sidecar-dist.tar`
-//! （未压缩 tar）与 `sidecar-version.json`；首次运行把 tar 解压到用户级
-//! 缓存目录，按 VERSION.json 幂等（版本一致直接复用，否则重解）。
-//! 纯函数、无 Tauri 依赖，可在无窗口环境单测。
+//! sidecar 打包资产缓存（方案 A）：release 构建只携带 `sidecar-dist.tar` 与
+//! `sidecar-version.json`，首启解压到用户级缓存目录，按 VERSION.json 幂等
+//! （版本一致直接复用）。纯函数、无 Tauri 依赖，可在无窗口环境单测。
 
 use std::cell::Cell;
 use std::fs::{self, File};
@@ -50,9 +49,9 @@ pub fn sidecar_cache_override() -> Option<PathBuf> {
     std::env::var_os("DSH_DESK_SIDECAR_CACHE").map(PathBuf::from)
 }
 
-/// 确保 sidecar 缓存就绪：版本一致直接返回；否则清理残留 tmp、解压 tar 到
-/// `<cache>.tmp-<pid>`、校验产物、删旧缓存、rename 提交。进度经 `on_progress`
-/// 上报（0.0..=1.0，已解压字节 / tar 字节，无需预扫条目数）。
+/// 确保 sidecar 缓存就绪：版本一致直接复用；否则清理残留 tmp、解压 tar 到
+/// `<cache>.tmp-<pid>`、校验产物后删旧缓存并 rename 提交。进度经 `on_progress`
+/// 上报（0.0..=1.0，已解压字节 / tar 字节）。
 pub fn ensure_cached_sidecar(
     archive: &Path,
     version_file: &Path,
@@ -131,9 +130,8 @@ fn cleanup_stale_tmp(cache_dir: &Path) {
     }
 }
 
-/// 条目路径安全判定：拒绝绝对路径、盘符/UNC 前缀、根目录段与任何 `..` 段
-/// （防 tar 穿越；自产 tar 属防御性）。Windows 上 `/abs`、`\abs` 会被
-/// `is_absolute` 判为非绝对，但带 RootDir 段，必须一并拒绝。
+/// 条目路径安全判定：拒绝绝对路径、盘符/UNC 前缀与任何 `..` 段（防 tar 穿越）；
+/// Windows 上 `/abs` 不被 `is_absolute` 判为绝对，但带 RootDir 段，必须一并拒绝。
 fn safe_entry_path(path: &Path) -> bool {
     !path.is_absolute()
         && !path.components().any(|c| {
@@ -158,10 +156,9 @@ impl Read for ProgressReader {
     }
 }
 
-/// 把 tar 解压到 `dest`；每条条目落盘后按字节比例上报进度。
-/// 注意：pnpm 的 node_modules 大量使用硬链接，bsdtar 会把同内容文件存成
-/// 硬链接条目（size 0 + link_name）——必须还原为硬链接，否则目标文件是
-/// 空文件（宿主解析 package.json 即崩）。符号链接为防御性支持。
+/// 把 tar 解压到 `dest`，每条条目落盘后按字节比例上报进度。
+/// 注意：pnpm 的 node_modules 大量使用硬链接，bsdtar 会存成 size 0 + link_name
+/// 的硬链接条目——必须还原为硬链接，否则目标文件是空文件（宿主解析即崩）。
 fn extract_tar(
     archive: &Path,
     dest: &Path,
@@ -388,8 +385,8 @@ mod tests {
     #[test]
     fn 硬链接条目还原为硬链接而非空文件() {
         let tmp = tempfile::TempDir::new().unwrap();
-        // 夹具：a.txt 数据条目 + b.txt 硬链接条目（size 0 + link_name）+
-        // VERSION.json。bsdtar 对 pnpm 硬链接文件就是这么存的。
+        // 夹具：a.txt 数据条目 + b.txt 硬链接条目（size 0 + link_name）+ VERSION.json，
+        // 模拟 bsdtar 对 pnpm 硬链接文件的存储形态。
         let mut builder = tar::Builder::new(Vec::new());
         let mut data = tar::Header::new_gnu();
         data.set_size(7);

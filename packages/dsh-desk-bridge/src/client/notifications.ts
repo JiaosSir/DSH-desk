@@ -1,6 +1,6 @@
 /**
- * 审批通知镜像：订阅宿主 /api/desktop/events SSE，收到审批事件经桥弹系统通知。
- * 纯浏览器（无桥）由调用方保证不启动；SSE 断线由浏览器 EventSource 自动重连。
+ * 订阅宿主 /api/desktop/events SSE，把审批事件经桥弹系统通知。
+ * 纯浏览器（无桥）由调用方保证不启动；断线由 EventSource 自动重连。
  * @module @cjiaojiao/dsh-desk-bridge/client/notifications
  */
 

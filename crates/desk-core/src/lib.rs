@@ -1,6 +1,5 @@
-//! desk-core: sidecar supervision, port negotiation, profile
-//! initialization, and rolling logs. Pure Rust with no Tauri dependency so
-//! every behavior is unit-testable without a windowing environment.
+//! desk-core：sidecar 监督、端口协商、profile 初始化与滚动日志。
+//! 纯 Rust、无 Tauri 依赖，所有行为可在无窗口环境单测。
 
 pub mod config;
 pub mod credentials;
