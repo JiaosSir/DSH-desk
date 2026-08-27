@@ -3,6 +3,10 @@
 > 基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) + [Tauri](https://tauri.app/) 开发的 **Windows 桌面应用**。
 > **极简轻量，告别庞大安装包** 
 
+<div align="center">
+  <img src="docs/images/overview.png" alt="DSH-desk总览" width="900">
+</div>
+
 ## 特点与优势
 
 - **开箱即用**：免安装 Node.js、免配置 pnpm、不用碰命令行，双击即用。

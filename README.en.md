@@ -3,6 +3,10 @@ English|[中文](README.md)
 > A **Windows desktop app** built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) + [Tauri](https://tauri.app/).
 > **Lightweight — no bulky installers**
 
+<div align="center">
+  <img src="docs/images/overview.en.png" alt="DSH-desk Overview" width="900">
+</div>
+
 ## Features
 
 - **Ready to use out of the box**: No Node.js install, no pnpm setup, no command line — double-click and go.
