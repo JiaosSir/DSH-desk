@@ -20,7 +20,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm bridge:test
       - name: 桥包版本与 tag 对齐（D7 同号策略）
-        run: npm pkg set version="${GITHUB_REF_NAME#v}" --workspace packages/dsh-desk-bridge
+        run: node -e "const fs=require('fs');const p='packages/dsh-desk-bridge/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
       - run: pnpm bridge:build
       - run: pnpm --filter @cjiaojiao/dsh-desk-bridge publish --access public --no-git-checks
         env:
@@ -43,7 +43,7 @@ jobs:
       - name: 版本号由 tag 派生（tauri.conf + 各 workspace 包）
         run: |
           node -e "const fs=require('fs');const p='apps/desktop/src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')"
-          npm pkg set version="${GITHUB_REF_NAME#v}" --workspaces
+          pnpm -r exec node -e "const fs=require('fs');const p='package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));if(!('version'in j))process.exit(0);j.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
       - run: pnpm sidecar:assemble          # sidecar 组装（不含 bridge；bridge 首启经 npm 钉版装入 profile，D7）
       - run: pnpm --dir apps/desktop tauri build --bundles nsis
       - run: node scripts/build-portable.mjs

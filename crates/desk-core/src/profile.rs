@@ -130,6 +130,14 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
         Err(e) => warnings.push(format!("旧 profile 迁移失败（不阻塞启动）: {e}")),
     }
 
+    // 0.5) 确保 profile 目录存在（全新 DSH_HOME 时 `profiles/DSHdesk` 尚不存在，
+    //    后续 fs::write 不建父目录，缺了直接 os error 3——CI 冒烟首启事故
+    //    2026-08-26；真实用户首启同样会踩中，本地开发无恙只因旧目录迁移恰好
+    //    生成了新目录）。必须放在迁移之后：先 rename 旧目录，再补建缺失目录，
+    //    否则 create_dir_all 会让迁移的 `dir.exists()` 短路判定失效。
+    std::fs::create_dir_all(&opts.profile_dir)
+        .map_err(|e| format!("创建 profile 目录失败 {}: {e}", opts.profile_dir.display()))?;
+
     // 1) manifest 存在性 + bundles 规范化：安装层前置、去重、废弃名移除。
     if ensure_profile_structure(&opts.profile_dir)? {
         ran_adds.push("bundles 登记（dsh-base + web-app）".to_owned());
@@ -855,6 +863,26 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(patch.contains("- id: dsh-market"));
         assert!(patch.contains("allowRestart: false"));
         assert!(patch.contains("profile: DSHdesk"));
+    }
+
+    #[tokio::test]
+    async fn 全新_profile_目录不存在时自动创建() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        // 不预建 profile 目录：模拟全新 DSH_HOME（CI 冒烟 mkdtemp / 用户首启）。
+        // 回归：fs::write 不建父目录，缺了会 os error 3（2026-08-26 CI 冒烟事故）。
+        let profile = tmp.path().join("profiles").join(PROFILE_NAME);
+        assert!(!profile.exists());
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profile, &stub);
+        let outcome = ensure_profile_init(&opts).await.unwrap();
+        assert!(
+            profile.join("package.json").exists(),
+            "应自动创建 profile 目录并落 manifest"
+        );
+        assert!(outcome.warnings.is_empty());
     }
 
     #[tokio::test]
