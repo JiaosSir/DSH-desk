@@ -12,7 +12,7 @@
 | D2 | sidecar 强制零遥测 | 子进程 env 恒注入 `DSH_TELEMETRY_DISABLED=1`（`crates/desk-core` 与壳侧 smoke 共用） |
 | D3 | 启动命令 = 自带 node 直跑 `lib/bin.js` | `<sidecar>/node/node.exe <sidecar>/node_modules/@deepseek-ai/dsh/lib/bin.js --profile desktop --port N --no-open`，cwd = profile 目录，PATH 头部注入 `<sidecar>/pnpm`（F5 的 .cmd shim 语义） |
 | D4 | 日志落 `~/.dsh/desktop/logs/` | `shell-YYYYMMDD.log` / `sidecar-YYYYMMDD.log`，各 1MB×2 滚动（`crates/desk-core/src/logs.rs`）；托盘与错误页均可「打开日志目录」 |
-| D5 | 等待页/错误页 = 壳内置静态资产 | `apps/desktop/dist/{index.html,error.html}` 作 `frontendDist`，就绪后 `webview.navigate(url)` 切到 sidecar |
+| D5 | 等待页/错误页 = 壳内置静态资产 | `apps/desktop/dist/{index.html,error.html}` 作 `frontendDist`；就绪后由资产页自身 `location.replace(url)` 切到 sidecar（替换历史条目，返回键不回退等待页；桥接脚本上报页面类别，壳仅在页面已离开资产页/桥不可用时 `webview.navigate` 兜底） |
 | D6 | 所有 dsh 命令由壳执行，bridge 零业务逻辑 | `apps/desktop/src-tauri/src/commands.rs` 全量命令；bridge 只做特性检测 + IPC（`window.__DSH_DESK__`） |
 | D7 | bridge 与壳同号、首启钉版安装 | 包名实际为 **`@cjiaojiao/dsh-desk-bridge`**；壳首启经 `dsh plugin --profile desktop add @cjiaojiao/dsh-desk-bridge@<版本>` 安装（`<版本>` = `env!("CARGO_PKG_VERSION")`，即 `Cargo.toml` 的 `version`）；开发期 `DSH_DESK_BRIDGE_SPEC=link:<绝对路径>` 覆盖为本地链接 |
 | D8 | 首次引导在页面内复用 web onboarding | API key 走 harness 现有机制（`~/.dsh/.env` / `.credentials.yaml`），壳只做存在性检测（`crates/desk-core/src/credentials.rs`，不读值）；**workspace 特性已移除**（`config.json` 现仅 `hotkey` / `autostart` 两字段） |

@@ -2,7 +2,9 @@
 //!
 //! 壳自身不含前端：`apps/desktop/dist/` 只承载本地等待页/错误页。启动时壳
 //! 监督随包分发的 harness sidecar（自带 node + 钉版 `@deepseek-ai/dsh`），
-//! 等 sidecar 打印就绪 URL 行后把 WebView 导航到 `http://127.0.0.1:<port>`；
+//! 等 sidecar 打印就绪 URL 行后由等待页/错误页 `location.replace` 切换到
+//! `http://127.0.0.1:<port>`（替换历史条目，返回键不回退等待页；壳仅在页面
+//! 已离开资产页或桥不可用时 `webview.navigate` 兜底）；
 //! 崩溃按退避自动重启，耗尽后展示错误页。原生能力经 `window.__DSH_DESK__`
 //! 桥暴露给 Web UI 里的桥接插件。
 
@@ -20,7 +22,7 @@ use desk_core::supervisor::{Supervisor, SupervisorEvent, SupervisorOptions};
 use desk_core::{logs, paths, ports, profile};
 use tauri::Manager;
 
-use crate::commands::DesktopStatus;
+use crate::commands::{DesktopStatus, PageKind};
 
 /// 壳 → 监督任务的命令通道。
 pub enum ShellCommand {
@@ -52,6 +54,8 @@ pub struct AppState {
     /// 打包资产（方案 A）：release 模式为 Some；dev/`SIDECAR_ROOT` 模式为 None。
     pub sidecar_archive: Option<PathBuf>,
     pub sidecar_version_file: Option<PathBuf>,
+    /// 当前 WebView 页面类别（桥接脚本每次加载上报；None = 尚未上报）。
+    pub page_kind: Arc<Mutex<Option<PageKind>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -74,6 +78,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::desktop_state,
+            commands::desktop_page_kind,
             commands::desktop_retry,
             commands::desktop_open_logs,
             commands::desktop_quit,
@@ -99,6 +104,7 @@ pub fn run() {
                 sidecar: layout.paths,
                 sidecar_archive: layout.archive,
                 sidecar_version_file: layout.version_file,
+                page_kind: Arc::new(Mutex::new(None)),
             });
             // 窗口在代码里创建：等待页之外还需注入 __DSH_DESK__ 桥。
             // WebView 硬化：仅允许 tauri:// 本地页与本机 sidecar 源，外链交系统浏览器；
@@ -326,7 +332,36 @@ async fn supervisor_task(
                 SupervisorEvent::Ready { url } => {
                     let _ = shell_log.append(&format!("宿主就绪: {url}"));
                     set_status(&status, DesktopStatus::running(url.clone()));
-                    let _ = window.navigate(tauri::Url::parse(&url).expect("就绪 URL 合法"));
+                    // 资产页（等待页/错误页）由页面自身 `location.replace` 导航到
+                    // 宿主：replace 替换当前历史条目，WebView 返回键不会回退到
+                    // 等待页。壳只在页面已离开资产页（宿主崩溃重启）时直接 push
+                    // 导航；资产页场景则等待页面自导航的确认（宿主页加载后经桥
+                    // 上报 Host），超时再 push 兜底——覆盖「页面已 replace 但目标
+                    // 未加载成功（如宿主就绪后立即崩溃）」的异常。
+                    let on_asset = {
+                        let page_state = app.state::<AppState>();
+                        let page_kind = page_state.page_kind.lock().expect("页面状态锁");
+                        *page_kind == Some(PageKind::Asset)
+                    };
+                    if on_asset {
+                        let app2 = app.clone();
+                        let window2 = window.clone();
+                        let url2 = url.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                            let is_host = {
+                                let page_state = app2.state::<AppState>();
+                                let page_kind = page_state.page_kind.lock().expect("页面状态锁");
+                                *page_kind == Some(PageKind::Host)
+                            };
+                            if !is_host {
+                                let _ = window2
+                                    .navigate(tauri::Url::parse(&url2).expect("就绪 URL 合法"));
+                            }
+                        });
+                    } else {
+                        let _ = window.navigate(tauri::Url::parse(&url).expect("就绪 URL 合法"));
+                    }
                 }
                 SupervisorEvent::Exited { code, attempt } => {
                     let _ = shell_log.append(&format!("宿主退出（attempt {attempt}，退出码 {code:?}）"));
@@ -499,7 +534,19 @@ fn set_status(status: &Arc<Mutex<DesktopStatus>>, next: DesktopStatus) {
 }
 
 /// 导航到错误页，附失败原因（URL 编码经 query 参数传递）。
+/// 资产页已上报（页面脚本可用）时由页面自行 `location.replace` 到错误页
+/// （替换历史条目，不残留等待页）；未上报（桥不可用）时壳 push 兜底，保证
+/// 错误页始终可达。
 fn navigate_error(window: &tauri::WebviewWindow, reason: &str) {
+    let on_asset = {
+        let app = window.app_handle();
+        let page_state = app.state::<AppState>();
+        let page_kind = page_state.page_kind.lock().expect("页面状态锁");
+        *page_kind == Some(PageKind::Asset)
+    };
+    if on_asset {
+        return;
+    }
     let url = format!("error.html?reason={}", urlencode(reason));
     let _ = window.navigate(
         tauri::Url::parse(&format!("tauri://localhost/{url}"))

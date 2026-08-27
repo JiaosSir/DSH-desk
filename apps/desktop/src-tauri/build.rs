@@ -5,6 +5,7 @@ fn main() {
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
             "desktop_state",
+            "desktop_page_kind",
             "desktop_retry",
             "desktop_open_logs",
             "desktop_quit",

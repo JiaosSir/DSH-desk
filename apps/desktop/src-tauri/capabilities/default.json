@@ -8,6 +8,7 @@
     "core:default",
     "opener:default",
     "allow-desktop-state",
+    "allow-desktop-page-kind",
     "allow-desktop-retry",
     "allow-desktop-open-logs",
     "allow-desktop-quit",

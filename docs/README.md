@@ -108,7 +108,7 @@ D:\project\open-source\DSH-desk\target\debug\dsh-desk.exe
 
 开发构建会自动用源码目录 `apps/desktop/src-tauri/sidecar-dist` 作为 sidecar（无需再设 `SIDECAR_ROOT`）；仍可用 `$env:SIDECAR_ROOT = "..."` 覆盖为任意目录（冒烟/调试用）。
 
-启动序列：解析 sidecar → 初始化 desktop profile（名字 `DSHdesk`，幂等：登记安装层 bundles `dsh-base` + `dsh-web-app`、bridge 与默认插件缺则补、历史残留自动迁移、旧名 `desktop` 目录自动改名）→ 选空闲端口 → 拉起 sidecar（`dsh --profile DSHdesk --port N --no-open`，环境注入 `DSH_TELEMETRY_DISABLED=1` 与自带 pnpm 的 PATH）→ 等 stdout 的 `dsh web: http://…` 就绪行 → WebView 自动导航。崩溃按 1s/2s/4s 退避重启（3 次上限），耗尽后展示错误页（重试 / 打开日志目录 / 退出）。托盘菜单：显示/隐藏、重启宿主、打开日志目录、退出。
+启动序列：解析 sidecar → 初始化 desktop profile（名字 `DSHdesk`，幂等：登记安装层 bundles `dsh-base` + `dsh-web-app`、bridge 与默认插件缺则补、历史残留自动迁移、旧名 `desktop` 目录自动改名）→ 选空闲端口 → 拉起 sidecar（`dsh --profile DSHdesk --port N --no-open`，环境注入 `DSH_TELEMETRY_DISABLED=1` 与自带 pnpm 的 PATH）→ 等 stdout 的 `dsh web: http://…` 就绪行 → 资产页 `location.replace(url)` 自动切换（替换历史条目，返回键不回退等待页）。崩溃按 1s/2s/4s 退避重启（3 次上限），耗尽后展示错误页（重试 / 打开日志目录 / 退出）。托盘菜单：显示/隐藏、重启宿主、打开日志目录、退出。
 
 生产包只携带 `sidecar-dist.tar` + `sidecar-version.json`：首启把它们解压到 `%LOCALAPPDATA%\com.dsh.desk\sidecar-dist`（等待页显示进度条），按 VERSION.json 幂等，之后启动直接复用；环境变量 `DSH_DESK_SIDECAR_CACHE` 可覆盖缓存目录（冒烟/调试用）。`SIDECAR_ROOT` 仍可指向任意解压好的目录绕过上述流程。
 

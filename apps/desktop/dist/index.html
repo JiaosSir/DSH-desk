@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>正在启动 — DeepSeek Harness</title>
     <style>
-      :root { color-scheme: dark; }
+      :root { color-scheme: light; }
       body {
         margin: 0;
         min-height: 100vh;
@@ -14,35 +14,35 @@
         align-items: center;
         justify-content: center;
         gap: 16px;
-        background: #0f1115;
-        color: #d6dbe3;
+        background: #ffffff;
+        color: #1f2329;
         font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
       }
       .spinner {
         width: 36px;
         height: 36px;
-        border: 3px solid #2a2f3a;
+        border: 3px solid #e2e5ea;
         border-top-color: #4d7cfe;
         border-radius: 50%;
         animation: spin 1s linear infinite;
       }
       @keyframes spin { to { transform: rotate(360deg); } }
       h1 { font-size: 18px; font-weight: 600; margin: 0; }
-      p { margin: 0; font-size: 13px; color: #8b93a1; }
-      #progress-wrap { width: 320px; height: 6px; border-radius: 3px; background: #2a2f3a; overflow: hidden; }
+      p { margin: 0; font-size: 13px; color: #6b7280; }
+      #progress-wrap { width: 320px; height: 6px; border-radius: 3px; background: #e2e5ea; overflow: hidden; }
       #progress-bar { height: 100%; width: 0%; background: #4d7cfe; transition: width 0.2s linear; }
-      #error { display: none; max-width: 420px; font-size: 13px; color: #ff8f98; white-space: pre-wrap; word-break: break-all; }
+      #error { display: none; max-width: 420px; font-size: 13px; color: #d03050; white-space: pre-wrap; word-break: break-all; }
       #actions { display: flex; gap: 10px; margin-top: 8px; }
       button {
         padding: 6px 14px;
         font-size: 13px;
         border-radius: 6px;
-        border: 1px solid #2a2f3a;
+        border: 1px solid #d6dbe3;
         background: transparent;
-        color: #d6dbe3;
+        color: #1f2329;
         cursor: pointer;
       }
-      button:hover { background: #1a1f28; }
+      button:hover { background: #f2f4f7; }
     </style>
   </head>
   <body>
@@ -70,20 +70,31 @@
         document.getElementById('logs').addEventListener('click', () => void bridge.openLogs())
       }
 
-      // 轮询壳状态：preparing（首启解压打包资产）显示进度条；failed 显示失败原因。
+      // 轮询壳状态：preparing（首启解压打包资产）显示进度条；running 由本页
+      // replace 到宿主（替换当前历史条目，WebView 返回键不回退到等待页，壳
+      // 在资产页上会跳过 push 导航）；failed 由本页 replace 到错误页（同理）。
       if (bridge && typeof bridge.getState === 'function') {
         const poll = async () => {
           try {
             const state = await bridge.getState()
+            if (state && state.phase === 'running' && state.url) {
+              window.location.replace(state.url)
+              return
+            }
+            if (state && state.phase === 'failed') {
+              errorEl.style.display = 'block'
+              errorEl.textContent = `启动失败：${state.error ?? '未知原因'}`
+              hint.textContent = '可打开日志目录查看详情，或点击「退出」。'
+              window.location.replace(
+                'error.html?reason=' + encodeURIComponent(state.error ?? '未知原因')
+              )
+              return
+            }
             if (state && state.phase === 'preparing') {
               const pct = Math.round((state.progress ?? 0) * 100)
               progressWrap.hidden = false
               progressBar.style.width = `${pct}%`
               hint.textContent = `正在准备本地环境… ${pct}%`
-            } else if (state && state.phase === 'failed') {
-              errorEl.style.display = 'block'
-              errorEl.textContent = `启动失败：${state.error ?? '未知原因'}`
-              hint.textContent = '可打开日志目录查看详情，或点击「退出」。'
             }
           } catch {
             // 忽略单次轮询失败（页面即将被导航走或桥不可用）。

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>启动失败 — DeepSeek Harness</title>
     <style>
-      :root { color-scheme: dark; }
+      :root { color-scheme: light; }
       body {
         margin: 0;
         min-height: 100vh;
@@ -14,8 +14,8 @@
         align-items: center;
         justify-content: center;
         gap: 16px;
-        background: #0f1115;
-        color: #d6dbe3;
+        background: #ffffff;
+        color: #1f2329;
         font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
       }
       .mark {
@@ -26,20 +26,20 @@
         align-items: center;
         justify-content: center;
         font-size: 22px;
-        background: #3a1f22;
-        color: #ff8f98;
+        background: #fde8eb;
+        color: #d03050;
       }
       h1 { font-size: 18px; font-weight: 600; margin: 0; }
-      p { margin: 0; font-size: 13px; color: #8b93a1; max-width: 480px; text-align: center; }
+      p { margin: 0; font-size: 13px; color: #6b7280; max-width: 480px; text-align: center; }
       pre {
         margin: 0;
         max-width: 560px;
         max-height: 200px;
         overflow: auto;
         font-size: 12px;
-        color: #aeb6c2;
-        background: #161a22;
-        border: 1px solid #2a2f3a;
+        color: #4b5563;
+        background: #f6f7f9;
+        border: 1px solid #e2e5ea;
         border-radius: 8px;
         padding: 10px 12px;
         white-space: pre-wrap;
@@ -49,12 +49,12 @@
         padding: 6px 14px;
         font-size: 13px;
         border-radius: 6px;
-        border: 1px solid #2a2f3a;
+        border: 1px solid #d6dbe3;
         background: transparent;
-        color: #d6dbe3;
+        color: #1f2329;
         cursor: pointer;
       }
-      button:hover { background: #1a1f28; }
+      button:hover { background: #f2f4f7; }
     </style>
   </head>
   <body>
@@ -84,6 +84,27 @@
         document.getElementById('retry').addEventListener('click', () => void bridge.restartHost())
         document.getElementById('logs').addEventListener('click', () => void bridge.openLogs())
         document.getElementById('quit').addEventListener('click', () => void bridge.quit())
+      }
+      // 轮询壳状态：重试成功后由本页 replace 到宿主（替换当前历史条目，返回
+      // 键不回退到错误页/等待页，壳在资产页上会跳过 push 导航）；仍失败则
+      // 刷新原因展示。
+      if (bridge && typeof bridge.getState === 'function') {
+        const poll = async () => {
+          try {
+            const state = await bridge.getState()
+            if (state && state.phase === 'running' && state.url) {
+              window.location.replace(state.url)
+              return
+            }
+            if (state && state.phase === 'failed' && state.error && state.error !== reason) {
+              document.getElementById('reason').textContent = state.error
+            }
+          } catch {
+            // 忽略单次轮询失败。
+          }
+        }
+        void poll()
+        setInterval(() => void poll(), 250)
       }
     </script>
   </body>

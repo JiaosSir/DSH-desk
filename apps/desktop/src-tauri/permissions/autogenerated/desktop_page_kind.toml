@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-page-kind"
+description = "Enables the desktop_page_kind command without any pre-configured scope."
+commands.allow = ["desktop_page_kind"]
+
+[[permission]]
+identifier = "deny-desktop-page-kind"
+description = "Denies the desktop_page_kind command without any pre-configured scope."
+commands.deny = ["desktop_page_kind"]

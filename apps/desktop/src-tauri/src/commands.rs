@@ -1,7 +1,7 @@
 //! 壳侧 IPC 命令：桥接插件（window.__DSH_DESK__）调用的后端实现。
 //! 阶段 2 实现首批命令；阶段 3/4 追加文件夹选择、自启、通知、Releases 等。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -74,6 +74,24 @@ impl DesktopStatus {
             progress: None,
         }
     }
+}
+
+/// 页面类别：本地资产页（等待页/错误页）与 sidecar 页面。桥接脚本在每次
+/// 页面加载时上报，壳据此决定由页面自行 `location.replace` 导航（替换历史
+/// 条目，返回键不回退等待页）还是 `webview.navigate` push 兜底。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PageKind {
+    /// 本地资产页（tauri:// 等待页/错误页）。
+    Asset,
+    /// sidecar Web UI（http://127.0.0.1:*）。
+    Host,
+}
+
+/// 页面类别上报（桥接脚本每次页面加载调用，fire-and-forget）。
+#[tauri::command]
+pub fn desktop_page_kind(state: State<'_, AppState>, kind: PageKind) {
+    *state.page_kind.lock().expect("页面状态锁") = Some(kind);
 }
 
 /// 当前壳状态（等待页/错误页轮询显示）。
