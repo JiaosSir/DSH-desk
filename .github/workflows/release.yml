@@ -19,10 +19,15 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - run: pnpm install --frozen-lockfile
       - run: pnpm bridge:test
-      - name: 桥包版本与 tag 对齐（D7 同号策略）
-        run: node -e "const fs=require('fs');const p='packages/dsh-desk-bridge/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
       - run: pnpm bridge:build
-      - run: pnpm --filter @cjiaojiao/dsh-desk-bridge publish --access public --no-git-checks
+      - name: 发布 bridge（版本已存在于 registry 时跳过；bridge 独立版本，不随 tag 派生）
+        run: |
+          VER=$(node -p "require('./packages/dsh-desk-bridge/package.json').version")
+          if npm view "@cjiaojiao/dsh-desk-bridge@$VER" version >/dev/null 2>&1; then
+            echo "bridge@$VER 已发布，跳过"
+          else
+            pnpm --filter @cjiaojiao/dsh-desk-bridge publish --access public --no-git-checks
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -40,11 +45,11 @@ jobs:
         with:
           workspaces: "apps/desktop/src-tauri -> target"
       - run: pnpm install --frozen-lockfile
-      - name: 版本号由 tag 派生（tauri.conf + 各 workspace 包）
+      - name: 版本号由 tag 派生（tauri.conf + 壳包；bridge 独立版本不动）
         run: |
           node -e "const fs=require('fs');const p='apps/desktop/src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')"
-          pnpm -r exec node -e "const fs=require('fs');const p='package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));if(!('version'in j))process.exit(0);j.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
-      - run: pnpm sidecar:assemble          # sidecar 组装（不含 bridge；bridge 首启经 npm 钉版装入 profile，D7）
+          node -e "const fs=require('fs');const p='apps/desktop/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.env.GITHUB_REF_NAME.replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
+      - run: pnpm sidecar:assemble          # sidecar 组装（不含 bridge；bridge 首启经 npm 钉版装入 profile）
       - run: pnpm --dir apps/desktop tauri build --bundles nsis
       - run: node scripts/build-portable.mjs
       - run: node scripts/smoke-desktop.mjs # 冒烟（DSH_HOME=临时目录）

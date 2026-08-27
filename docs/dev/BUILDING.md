@@ -94,7 +94,7 @@ pnpm desktop:dev
 
 ## 5. 发布流程（release.yml）
 
-**版本号策略**：壳与 sidecar 共用版本号（由 git tag 派生）；bridge 独立版本（`packages/dsh-desk-bridge/package.json` 的 `version`，壳侧经 `profile::BRIDGE_PACKAGE_VERSION` 读取，与壳版本解耦）。release.yml 自动写入 `tauri.conf.json`（安装包版本）与各 npm workspace 包版本（bridge 发布版本）；**`apps/desktop/src-tauri/Cargo.toml` 的 `version` 必须手工同步为 tag 版本**。仓库基线：壳 `1.0.0`、bridge `0.1.0`。
+**版本号策略**：壳与 sidecar 共用版本号（由 git tag 派生）；bridge 独立版本（`packages/dsh-desk-bridge/package.json` 的 `version`，壳侧经 `profile::BRIDGE_PACKAGE_VERSION` 读取，与壳版本解耦）。release.yml 自动写入 `tauri.conf.json`（安装包版本）与 `apps/desktop/package.json`；bridge 只在手工升 `version` 后随发布 job 推送（版本已存在则跳过）；**`apps/desktop/src-tauri/Cargo.toml` 的 `version` 必须手工同步为 tag 版本**。仓库基线：壳 `1.0.0`、bridge `0.1.0`。
 
 发布步骤：
 
