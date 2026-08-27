@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::update::{self, UpdateInfo, UpdateMode, UpdateProgress};
 use crate::{AppState, ShellCommand};
 
 /// 壳状态快照（等待页/错误页经 desktop_state 读取）。
@@ -144,8 +145,89 @@ pub fn desktop_get_onboarding() -> DesktopOnboarding {
 #[tauri::command]
 pub fn desktop_open_releases(app: AppHandle) -> Result<(), String> {
     app.opener()
-        .open_url("https://github.com/JiaosSir/DSH-desk/releases", None::<&str>)
+        .open_url(
+            "https://github.com/JiaosSir/DSH-desk/releases",
+            None::<&str>,
+        )
         .map_err(|e| format!("打开 Releases 失败: {e}"))
+}
+
+/// 检查更新：查询 GitHub Releases 最新版本并与当前版本比较；把待下载资产与
+/// 更新模式记入会话（便携版仅提示，不做应用内更新）。
+#[tauri::command]
+pub async fn desktop_check_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<UpdateInfo, String> {
+    let current = update::effective_current_version(&app.package_info().version.to_string());
+    let mode = update::detect_mode();
+    let info =
+        tauri::async_runtime::spawn_blocking(move || update::check_for_update(&current, mode))
+            .await
+            .map_err(|e| format!("检查更新任务异常: {e}"))??;
+    let mut session = state.update.lock().expect("更新会话锁");
+    session.record_check(mode, &info);
+    Ok(info)
+}
+
+/// 下载新版安装包（仅安装版；便携版在 check 结果里已提示手动下载）。
+/// 进度经 `desktop_update_progress` 轮询。
+#[tauri::command]
+pub async fn desktop_download_update(state: State<'_, AppState>) -> Result<(), String> {
+    let (pending, session) = {
+        let s = state.update.lock().expect("更新会话锁");
+        if s.mode != UpdateMode::Installed {
+            return Err(
+                "便携版不支持应用内更新，请前往 GitHub Releases 下载最新压缩包后手动覆盖"
+                    .to_owned(),
+            );
+        }
+        let pending = s.pending.clone().ok_or_else(|| "请先检查更新".to_owned())?;
+        (pending, std::sync::Arc::clone(&state.update))
+    };
+    let dest = std::env::temp_dir().join(&pending.name);
+    tauri::async_runtime::spawn_blocking(move || {
+        update::download_update(&session, &pending, &dest)
+    })
+    .await
+    .map_err(|e| format!("下载更新任务异常: {e}"))??;
+    Ok(())
+}
+
+/// 当前更新进度（UI 轮询）。
+#[tauri::command]
+pub fn desktop_update_progress(state: State<'_, AppState>) -> UpdateProgress {
+    state.update.lock().expect("更新会话锁").progress.clone()
+}
+
+/// 安装已下载的新版本（仅安装版）：先经临时脚本等本应用退出，再静默覆盖安装
+/// 并自动重启；应用随即优雅退出（停 sidecar，避免孤儿进程）。
+#[tauri::command]
+pub fn desktop_install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let (path, mode) = {
+        let s = state.update.lock().expect("更新会话锁");
+        (s.downloaded.clone(), s.mode)
+    };
+    if mode != UpdateMode::Installed {
+        return Err(
+            "便携版不支持应用内更新，请前往 GitHub Releases 下载最新压缩包后手动覆盖".to_owned(),
+        );
+    }
+    let path = path.ok_or_else(|| "安装包尚未下载完成".to_owned())?;
+    if !path.exists() {
+        return Err("安装包不存在，请重新下载".to_owned());
+    }
+    {
+        let mut s = state.update.lock().expect("更新会话锁");
+        s.progress.phase = "installing";
+    }
+    // 顺序不能反：先优雅停 sidecar（安装器静默模式会自行结束本进程，此时宿主
+    // 已停、不会留孤儿 sidecar），再直接拉起安装器（GUI 子进程，无控制台窗口），
+    // 最后退出；装完 /R 自动拉起新版本。
+    crate::stop_host(&app);
+    update::launch_installer(&path)?;
+    app.exit(0);
+    Ok(())
 }
 
 /// 设置开机自启；返回持久化后的状态。
@@ -156,9 +238,13 @@ pub fn desktop_set_autostart(app: AppHandle, enabled: bool) -> Result<bool, Stri
     if enabled {
         manager.enable().map_err(|e| format!("启用自启失败: {e}"))?;
     } else {
-        manager.disable().map_err(|e| format!("禁用自启失败: {e}"))?;
+        manager
+            .disable()
+            .map_err(|e| format!("禁用自启失败: {e}"))?;
     }
-    manager.is_enabled().map_err(|e| format!("读取自启状态失败: {e}"))
+    manager
+        .is_enabled()
+        .map_err(|e| format!("读取自启状态失败: {e}"))
 }
 
 /// 当前开机自启状态。
@@ -192,9 +278,7 @@ pub fn desktop_sync_list() -> Vec<String> {
     let home = desk_core::paths::dsh_home();
     desk_core::profile::compute_sync_diff(
         &home.join("profiles").join("web"),
-        &home
-            .join("profiles")
-            .join(desk_core::profile::PROFILE_NAME),
+        &home.join("profiles").join(desk_core::profile::PROFILE_NAME),
     )
     .missing
 }

@@ -6,6 +6,31 @@
  * @module @cjiaojiao/dsh-desk-bridge/client/bridge
  */
 
+/** 检查更新结果（壳侧 desktop_check_update，camelCase）。 */
+export interface UpdateInfo {
+  /** 是否存在比当前更新的版本。 */
+  available: boolean
+  currentVersion: string
+  latestVersion: string
+  /** 发布说明（GitHub Release body，可能为 null）。 */
+  notes: string | null
+  /** 匹配到的安装包资产（无匹配为 null）。 */
+  assetName: string | null
+  assetUrl: string | null
+  assetSize: number | null
+  /** true = 便携版（不做应用内更新，仅提示手动下载）。 */
+  portable: boolean
+}
+
+/** 更新下载进度（壳侧 desktop_update_progress，轮询）。 */
+export interface UpdateProgress {
+  /** idle / checking / downloading / downloaded / installing / error。 */
+  phase: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'installing' | 'error'
+  received: number
+  total: number
+  message: string | null
+}
+
 /** Tauri 壳注入的桌面桥协议。 */
 export interface DeskBridge {
   /** 每个方法都由壳背书时为 true。 */
@@ -16,6 +41,14 @@ export interface DeskBridge {
   openLogs(): Promise<void>
   /** 在系统浏览器中打开 GitHub Releases 页面。 */
   openReleases(): Promise<void>
+  /** 检查 GitHub Releases 是否有新版本。 */
+  checkUpdate(): Promise<UpdateInfo>
+  /** 下载新版安装包（仅安装版；进度经 getUpdateProgress 轮询）。 */
+  downloadUpdate(): Promise<void>
+  /** 当前更新下载进度。 */
+  getUpdateProgress(): Promise<UpdateProgress>
+  /** 安装已下载的新版本（应用会退出并自动重启；仅安装版支持）。 */
+  installUpdate(): Promise<void>
   /** 仅重启 harness 宿主（sidecar）。 */
   restartHost(): Promise<void>
   /** 开/关开机自启；返回持久化后的状态。 */

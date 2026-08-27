@@ -22,6 +22,9 @@ tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
 ureq = { version = "2", default-features = false }
+semver = "1"
+url = "2"
+windows = { version = "0.61", features = ["Win32_Networking_WinHttp"] }
 open = "5"
 tokio = { version = "1", features = ["sync"] }
 serde = { version = "1", features = ["derive"] }

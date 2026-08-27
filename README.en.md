@@ -10,7 +10,7 @@ English|[中文](README.md)
 ## Features
 
 - **Ready to use out of the box**: No Node.js install, no pnpm setup, no command line — double-click and go.
-- **Windows system integration**: Autostart toggle, hotkey display, restart dsh, one-click open log directory, check for the latest version; dsh approval events are mirrored as system notifications.
+- **Windows system integration**: Autostart toggle, hotkey display, restart dsh, one-click open log directory, update checks (the installed edition auto-checks on startup and can silently update and restart with one click); dsh approval events are mirrored as system notifications.
 - **Shared data with the web version**: The desktop app and the web version share the same user data (profiles, sessions, credentials under `~/.dsh`), so switching between them is seamless.
 - **Full plugin ecosystem reuse**: Built-in [dsh-market](https://github.com/dsh-market/dsh-market/tree/main) plugin marketplace; since the Harness profile and plugin mechanisms are reused, community plugins install and work as usual.
 - **Lightweight install, fast startup**: The sidecar ships as a single archive inside the installer; the first run extracts it locally with a progress display, subsequent launches are instant, and upgrades refresh the engine automatically.
@@ -48,7 +48,9 @@ All installers come from **GitHub Releases** (the only distribution channel): <h
 
 ## Upgrade & Uninstall
 
-- **Upgrade**: Just download the new installer and **install over the existing one**; profiles, sessions, and credentials under `~/.dsh` are kept intact, and the engine refreshes automatically on the first start after upgrading.
+- **Upgrade**:
+  - **Installed edition**: the app **auto-checks for updates on startup**; when a new version is found, a "Download update" button appears in the sidebar (dismissible for the current session). You can also check manually via Settings → "Desktop" section → **"Check for updates"**. After the download completes, click "Install" — the app exits automatically, silently installs over the existing installation, and restarts itself; profiles, sessions, and credentials under `~/.dsh` are kept intact, and the engine refreshes automatically on the first start after upgrading.
+  - **Portable edition**: the in-app check prompts you to download the latest zip from GitHub Releases and extract it over the original directory (the portable edition has no in-app auto-update and no startup auto-check).
 - **Uninstall**: Via "Settings → Apps → Installed apps", or re-run the installer and choose uninstall. Uninstalling **does not delete** your personal data under `~/.dsh` (delete that directory manually for a full cleanup).
 - **Portable**: delete the extracted directory.
 

@@ -53,8 +53,15 @@ jobs:
       - run: pnpm --dir apps/desktop tauri build --bundles nsis
       - run: node scripts/build-portable.mjs
       - run: node scripts/smoke-desktop.mjs # 冒烟（DSH_HOME=临时目录）
+      - name: 生成 release notes（取 tag 消息；无则回退最近提交标题）
+        shell: bash
+        run: |
+          NOTES="$(git tag -l --format='%(contents)' "${{ github.ref_name }}")"
+          if [ -z "$NOTES" ]; then NOTES="$(git log -1 --format='%s')"; fi
+          printf '%s\n' "$NOTES" > release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: |
             target/release/bundle/nsis/*-setup.exe
             dist-portable/*.zip

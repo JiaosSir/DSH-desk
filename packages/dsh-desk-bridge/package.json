@@ -1,7 +1,7 @@
 {
   "name": "@cjiaojiao/dsh-desk-bridge",
   "description": "Desk bridge for the dsh web GUI: capability detection plus a thin Tauri IPC bridge (window.__DSH_DESK__) with zero business logic. In a plain browser the bundle degrades to a no-op.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

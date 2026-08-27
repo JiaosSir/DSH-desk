@@ -157,16 +157,21 @@ The app bundles a full Node runtime and a pinned Harness dependency tree (sideca
 
 ### Will upgrading lose data? How do I back up?
 
-No. Upgrading = downloading the new installer and **installing over the existing one**; profiles, sessions, and credentials under `~/.dsh` are **kept intact**; the engine version refreshes automatically on the first start after upgrading.
+No. Upgrading (the in-app one-click update or installing a new installer over the existing one) only replaces program files; profiles, sessions, and credentials under `~/.dsh` are **kept intact**; the engine version refreshes automatically on the first start after upgrading.
 
 Manual backup (also useful for migrating to a new PC): copy the whole `~/.dsh` directory (note that `.env` / `.credentials.yaml` contain plaintext credentials — keep them safe).
 
 ### How do I know if there is a new version?
 
-The app **does no automatic update checks** (zero telemetry, zero background requests). To look for new versions:
+**Installed edition**: the app **auto-checks for updates once at every startup** (installed edition only; the portable edition does not). When a new version exists, a **"Download update"** button appears in the left sidebar between the logo row and the "New session" button (the × at its top-right dismisses the prompt for the current session); clicking it runs the same download → install → auto-restart flow as the in-app check.
 
-- Settings → "Desktop" section → **"Check for the latest version"**: opens the GitHub Releases page in your system browser for you to check;
-- Or visit <https://github.com/JiaosSir/DSH-desk/releases> directly.
+You can also check manually: Settings → "Desktop" section → **"Check for updates"** queries the latest GitHub release and compares it with the current version:
+
+- **New version** (installed): shows the version comparison and release notes; you can directly "Download & update" → "Install" — the app exits automatically, silently installs over the existing installation, and restarts itself;
+- **New version** (portable): prompts you to download the latest zip from GitHub Releases and extract it over the current directory;
+- **Up to date**: shows "You are up to date".
+
+Each check (startup auto-check or manual click) issues a single GitHub API request (anonymous rate limit 60/hour/IP); you can also visit <https://github.com/JiaosSir/DSH-desk/releases> directly.
 
 ### Can I open the same UI in a plain browser instead of the desktop app?
 

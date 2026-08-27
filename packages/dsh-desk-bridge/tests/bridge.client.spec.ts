@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index'
-import { detectBridge } from '../src/client/bridge'
+import { detectBridge, type DeskBridge, type UpdateProgress } from '../src/client/bridge'
 
 /** client 根上下文的最小 mock（阶段 4 需要 slots 与 effect）。 */
 interface MockCtx {
@@ -35,12 +35,30 @@ function mockCtx(): MockCtx {
   }
 }
 
-function mockBridge() {
+function mockBridge(): DeskBridge {
   return {
     available: true,
     getHotkey: vi.fn(async () => 'Ctrl+Alt+D'),
     openLogs: vi.fn(async () => {}),
     openReleases: vi.fn(async () => {}),
+    checkUpdate: vi.fn(async () => ({
+      available: false,
+      currentVersion: '1.0.0',
+      latestVersion: 'v1.0.0',
+      notes: null,
+      assetName: null,
+      assetUrl: null,
+      assetSize: null,
+      portable: false,
+    })),
+    downloadUpdate: vi.fn(async () => {}),
+    getUpdateProgress: vi.fn(async (): Promise<UpdateProgress> => ({
+      phase: 'idle',
+      received: 0,
+      total: 0,
+      message: null,
+    })),
+    installUpdate: vi.fn(async () => {}),
     restartHost: vi.fn(async () => {}),
     setAutostart: vi.fn(async () => true),
     getAutostart: vi.fn(async () => false),
@@ -144,5 +162,8 @@ describe('client 插件入口', () => {
     expect(bridge.setAutostart).not.toHaveBeenCalled()
     expect(bridge.notify).not.toHaveBeenCalled()
     expect(bridge.restartHost).not.toHaveBeenCalled()
+    expect(bridge.checkUpdate).not.toHaveBeenCalled()
+    expect(bridge.downloadUpdate).not.toHaveBeenCalled()
+    expect(bridge.installUpdate).not.toHaveBeenCalled()
   })
 })

@@ -1,8 +1,8 @@
 //! Desktop profile 初始化与 web→desktop 插件同步差集。
 //!
 //! [`ensure_profile_init`] 幂等首启：web-app 只登记 bundles 并钉 sidecar 同版本
-//! （版本错配会让宿主崩溃），bridge 缺则 add（失败只 warning 不阻塞启动）；
-//! [`compute_sync_diff`] 供设置区「从 web 导入」用。
+//! （版本错配会让宿主崩溃），bridge 缺则 add、已装版本与钉版不一致则升级
+//! （失败只 warning 不阻塞启动）；[`compute_sync_diff`] 供设置区「从 web 导入」用。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ pub const BRIDGE_PACKAGE: &str = "@cjiaojiao/dsh-desk-bridge";
 
 /// bridge 包的发布版本（与壳版本解耦、独立发布）；缺省安装 spec 为
 /// `BRIDGE_PACKAGE@BRIDGE_PACKAGE_VERSION`。
-pub const BRIDGE_PACKAGE_VERSION: &str = "0.1.0";
+pub const BRIDGE_PACKAGE_VERSION: &str = "1.0.0";
 
 /// desktop profile 的安装层（与 web profile 模板同构）：只登记进
 /// `dsh.profile.bundles`、绝不 `pnpm add`——add 会把 web-app 的依赖全家桶装进
@@ -39,7 +39,9 @@ pub const DEFAULT_PLUGINS: [&str; 1] = ["dshmarket@1.31.1"];
 
 /// 默认插件的用户层 patch 配置（`cordis.patch.yml`，幂等）：dsh-market 禁用
 /// 自带重启（桌面由壳负责重启，防孤儿进程）并显式钉死安装 profile。
-/// 必须用 `concat!` 拼接——续行符会吃掉行首缩进使 YAML 解析失败。
+/// 必须用 `concat!` 拼接——续行符会吃掉行首缩进使 YAML 解析失败；且 `concat!`
+/// 只接受字面量，钉值无法引用 [`PROFILE_NAME`]，由单测
+/// `默认patch模板_钉值与profile名一致` 兜底防漂移。
 pub const DEFAULT_PLUGIN_PATCH_OVERRIDES: &str = concat!(
     "# DSH-desk 生成的用户层 patch：默认插件的桌面环境配置。\n",
     "# dsh-market：桌面由壳监督宿主生命周期，禁用市场自带重启（防孤儿进程）。\n",
@@ -124,13 +126,24 @@ pub async fn ensure_profile_init(opts: &InitOptions) -> Result<ProfileInitOutcom
         ));
     }
 
-    // 3) bridge 只判存在性（版本独立于壳），缺则 add；失败不阻塞（可选增强，宿主照常可用）。
+    // 3) bridge：缺则装；已装版本与钉版不一致则升级（本地 spec 视为开发者
+    //    显式覆盖，不强制对齐）；失败不阻塞（可选增强，宿主照常可用）。
     let deps = read_dependencies(&opts.profile_dir)?;
-    if !deps.contains_key(BRIDGE_PACKAGE) {
-        match run_add_robust(opts, &opts.bridge_spec).await {
+    match deps.get(BRIDGE_PACKAGE) {
+        None => match run_add_robust(opts, &opts.bridge_spec).await {
             Ok(()) => ran_adds.push(opts.bridge_spec.clone()),
             Err(e) => warnings.push(format!("bridge add 失败（不阻塞启动）: {e}")),
+        },
+        Some(installed)
+            if !is_local_spec(installed)
+                && normalized_version(installed) != BRIDGE_PACKAGE_VERSION =>
+        {
+            match run_add_robust(opts, &opts.bridge_spec).await {
+                Ok(()) => ran_adds.push(format!("bridge 升级：{installed} → {}", opts.bridge_spec)),
+                Err(e) => warnings.push(format!("bridge 升级失败（不阻塞启动）: {e}")),
+            }
         }
+        _ => {}
     }
 
     // 4) 默认随装插件（如 dsh-market 插件市场）：缺则 add，失败不阻塞。
@@ -198,8 +211,8 @@ fn bundled_dependency_violation(dir: &Path, name: &str) -> Option<String> {
 }
 
 /// 确保 profile 用户层 patch（`cordis.patch.yml`）含默认插件的配置块（幂等）：
-/// 已含缩进完整的标准配置则跳过；空数组/损坏/缺配置则写标准块——桌面禁用
-/// 市场自带重启是安全要求（防孤儿进程），优先于用户自定义。返回是否写入。
+/// 已含缩进完整且钉值正确的标准配置则跳过；空数组/损坏/陈旧钉值则写标准块——
+/// 桌面禁用市场自带重启是安全要求（防孤儿进程），优先于用户自定义。返回是否写入。
 fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
     let patch_path = dir.join("cordis.patch.yml");
     let marker = "- id: dsh-market";
@@ -213,15 +226,24 @@ fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
         Err(e) => return Err(format!("读取 {} 失败: {e}", patch_path.display())),
     };
     if text.contains(marker) {
-        // 仅当缩进完整的标准配置已存在（`config:` 两空格、allowRestart 四空格）才跳过；
-        // 早期生成的缩进损坏文件（`config:` 无缩进）虽含同字样也必须重写（安全要求优先）。
+        // 仅当缩进完整的标准配置已存在（`config:` 两空格、allowRestart 四空格，
+        // 且钉死的 profile 与当前一致）才跳过。以下情况必须重写：
+        // - 早期生成的缩进损坏文件（`config:` 无缩进）虽含同字样（安全要求优先）；
+        // - 钉死的 profile 是陈旧值（如改名前的旧名残留）：市场按 config 优先于
+        //   argv 解析安装目标，会装进错误 profile，UI 显示「已安装/使用中」而
+        //   运行时永不加载（2026-08-27 事故）。
+        // 无钉值（用户手写块）容忍跳过：市场回退到 argv 的 `--profile`，恰好正确。
+        let expected_pin = format!("\n    allowRestart: false\n    profile: {PROFILE_NAME}\n");
+        let pin_ok = !text.contains("\n    profile:") || text.contains(&expected_pin);
         let correctly_configured =
-            text.contains("\n  config:") && text.contains("\n    allowRestart: false");
+            text.contains("\n  config:") && text.contains("\n    allowRestart: false") && pin_ok;
         if correctly_configured {
             return Ok(false);
         }
-        // 损坏/不完整版本：整体替换为标准块。
-        std::fs::write(&patch_path, DEFAULT_PLUGIN_PATCH_OVERRIDES)
+        // 损坏/陈旧版本：只替换 dsh-market 配置块为标准块，保留块外用户内容
+        // （如市场写入的插件禁用条目），避免重写把用户的启停选择一并抹掉。
+        let updated = replace_market_block(&text);
+        std::fs::write(&patch_path, updated)
             .map_err(|e| format!("写入 {} 失败: {e}", patch_path.display()))?;
         return Ok(true);
     }
@@ -245,6 +267,27 @@ fn ensure_user_patch_overrides(dir: &Path) -> Result<bool, String> {
     std::fs::write(&patch_path, updated)
         .map_err(|e| format!("写入 {} 失败: {e}", patch_path.display()))?;
     Ok(true)
+}
+
+/// 把 `cordis.patch.yml` 里的 dsh-market 配置块（从 `- id: dsh-market` 行到
+/// 下一个顶层 `- ` 条目或文件尾）整体替换为标准块；块外内容原样保留。
+/// 找不到标记时原样返回（调用方仅在 `text.contains(marker)` 后调用）。
+fn replace_market_block(text: &str) -> String {
+    let marker = "- id: dsh-market";
+    let Some(start) = text.find(marker) else {
+        return text.to_owned();
+    };
+    let block_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let after = start + marker.len();
+    let block_end = text[after..]
+        .find("\n- ")
+        .map(|i| after + i + 1)
+        .unwrap_or(text.len());
+    let mut updated = String::with_capacity(text.len() + DEFAULT_PLUGIN_PATCH_OVERRIDES.len());
+    updated.push_str(&text[..block_start]);
+    updated.push_str(DEFAULT_PLUGIN_PATCH_OVERRIDES);
+    updated.push_str(&text[block_end..]);
+    updated
 }
 
 /// 旧 profile 名迁移：旧名目录存在且新名（`dir`）不存在时整体重命名；
@@ -401,6 +444,18 @@ fn read_dependencies(dir: &Path) -> Result<BTreeMap<String, String>, String> {
         }
     }
     Ok(deps)
+}
+
+/// spec 是否为本地安装（`file:` / `link:` / `workspace:`）——视为开发者显式
+/// 覆盖（如 DSH_DESK_BRIDGE_SPEC 指向本地 tarball），跳过钉版对齐。
+fn is_local_spec(spec: &str) -> bool {
+    spec.starts_with("file:") || spec.starts_with("link:") || spec.starts_with("workspace:")
+}
+
+/// 依赖规格归一化：去掉 `^ ~ = v` 与比较符等前缀，得到裸版本号（对齐用）。
+/// `^1.0.0` / `>=1.0.0` / `v1.0.0` → `1.0.0`。
+fn normalized_version(spec: &str) -> &str {
+    spec.trim_start_matches(|c: char| "^~=<> v".contains(c))
 }
 
 /// 给 desktop profile 追加插件的参数（设置区「从 web 导入」用）。
@@ -632,7 +687,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             bin_js: stub.to_owned(),
             pnpm_dir: profile_dir.join("pnpm-stub"),
             dsh_version: "0.1.0-rc.8".into(),
-            bridge_spec: "@cjiaojiao/dsh-desk-bridge@0.1.0".into(),
+            bridge_spec: format!("{}@{}", BRIDGE_PACKAGE, BRIDGE_PACKAGE_VERSION),
         }
     }
 
@@ -785,7 +840,7 @@ if (pkg && pkg.includes('FAILONCE')) {
             outcome.ran_adds,
             vec![
                 "bundles 登记（dsh-base + web-app）".to_string(),
-                "@cjiaojiao/dsh-desk-bridge@0.1.0".to_string(),
+                format!("{}@{}", BRIDGE_PACKAGE, BRIDGE_PACKAGE_VERSION),
                 "dshmarket@1.31.1".to_string(),
                 "用户层 patch：默认插件桌面配置".to_string(),
             ]
@@ -801,8 +856,8 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert_eq!(
             lines,
             vec![
-                "DSHdesk @cjiaojiao/dsh-desk-bridge@0.1.0",
-                "DSHdesk dshmarket@1.31.1",
+                format!("DSHdesk {}@{}", BRIDGE_PACKAGE, BRIDGE_PACKAGE_VERSION),
+                "DSHdesk dshmarket@1.31.1".to_string(),
             ]
         );
         // 默认插件的用户层 patch：dsh-market 禁用自带重启 + 钉激活 profile。
@@ -810,6 +865,118 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(patch.contains("- id: dsh-market"));
         assert!(patch.contains("allowRestart: false"));
         assert!(patch.contains("profile: DSHdesk"));
+    }
+
+    #[test]
+    fn 依赖规格归一化() {
+        assert_eq!(normalized_version("1.0.0"), "1.0.0");
+        assert_eq!(normalized_version("^1.0.0"), "1.0.0");
+        assert_eq!(normalized_version("~0.1.0"), "0.1.0");
+        assert_eq!(normalized_version(">=1.2.3"), "1.2.3");
+        assert_eq!(normalized_version("v1.0.0"), "1.0.0");
+    }
+
+    #[test]
+    fn 本地spec识别() {
+        assert!(is_local_spec("file:../bridge.tgz"));
+        assert!(is_local_spec("link:../bridge"));
+        assert!(is_local_spec("workspace:^1.0.0"));
+        assert!(!is_local_spec("1.0.0"));
+        assert!(!is_local_spec("^0.1.0"));
+    }
+
+    #[tokio::test]
+    async fn bridge_版本不一致时自动升级() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // 预置旧版 bridge（模拟存量 profile），其余依赖走默认流程。
+        fs::write(
+            profile.join("package.json"),
+            r#"{"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0"}}"#,
+        )
+        .unwrap();
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profile, &stub);
+        let outcome = ensure_profile_init(&opts).await.unwrap();
+        let upgrade = outcome
+            .ran_adds
+            .iter()
+            .find(|s| s.contains("bridge 升级"))
+            .expect("应执行 bridge 升级");
+        assert!(
+            upgrade.contains("0.1.0") && upgrade.contains(BRIDGE_PACKAGE_VERSION),
+            "升级记录: {upgrade}"
+        );
+        assert!(
+            outcome.warnings.is_empty(),
+            "warnings: {:?}",
+            outcome.warnings
+        );
+        let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
+        assert!(
+            log.contains(&format!("{BRIDGE_PACKAGE}@{BRIDGE_PACKAGE_VERSION}")),
+            "adds.log 应包含新钉版 spec: {log}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bridge_版本一致时不重复安装() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        fs::write(
+            profile.join("package.json"),
+            format!(r#"{{"dependencies":{{"{BRIDGE_PACKAGE}":"{BRIDGE_PACKAGE_VERSION}"}}}}"#),
+        )
+        .unwrap();
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profile, &stub);
+        let outcome = ensure_profile_init(&opts).await.unwrap();
+        assert!(
+            !outcome.ran_adds.iter().any(|s| s.contains(BRIDGE_PACKAGE)),
+            "版本一致不应触碰 bridge: {:?}",
+            outcome.ran_adds
+        );
+        let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
+        assert!(
+            !log.contains("dsh-desk-bridge"),
+            "adds.log 不应出现 bridge add: {log}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bridge_本地spec_视为覆盖不强制升级() {
+        if !node_available() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        fs::write(
+            profile.join("package.json"),
+            r#"{"dependencies":{"@cjiaojiao/dsh-desk-bridge":"file:../bridge.tgz"}}"#,
+        )
+        .unwrap();
+        let stub = write_stub(&tmp);
+        let opts = init_options(&profile, &stub);
+        let outcome = ensure_profile_init(&opts).await.unwrap();
+        assert!(
+            !outcome.ran_adds.iter().any(|s| s.contains("bridge 升级")),
+            "本地 spec 不应触发升级: {:?}",
+            outcome.ran_adds
+        );
+        let log = fs::read_to_string(tmp.path().join("adds.log")).unwrap();
+        assert!(
+            !log.contains("dsh-desk-bridge"),
+            "adds.log 不应出现 bridge add: {log}"
+        );
     }
 
     #[tokio::test]
@@ -840,11 +1007,12 @@ if (pkg && pkg.includes('FAILONCE')) {
         let tmp = TempDir::new().unwrap();
         let profile = tmp.path().join("desktop");
         fs::create_dir_all(&profile).unwrap();
-        // 理想终态：dependencies 只有 bridge + 默认插件，bundles 含安装层，
+        // 理想终态：dependencies 只有 bridge（钉版）+ 默认插件，bundles 含安装层，
         // 用户层 patch 已含默认插件配置。
         fs::write(
             profile.join("package.json"),
-            r#"{"name":"dsh-profile-desktop","private":true,"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0","dshmarket":"1.31.1"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@cjiaojiao/dsh-desk-bridge","dshmarket"]}}}"#,
+            r#"{"name":"dsh-profile-desktop","private":true,"dependencies":{"@cjiaojiao/dsh-desk-bridge":"0.1.0","dshmarket":"1.31.1"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","@cjiaojiao/dsh-desk-bridge","dshmarket"]}}}"#
+                .replace("0.1.0", BRIDGE_PACKAGE_VERSION),
         )
         .unwrap();
         fs::write(
@@ -1038,6 +1206,74 @@ if (pkg && pkg.includes('FAILONCE')) {
         assert!(text.contains("\n  config:\n"));
         assert!(text.contains("\n    allowRestart: false\n"));
         assert!(!text.contains("\nconfig:\n"));
+    }
+
+    #[test]
+    fn 用户层patch_陈旧profile钉值_重写市场块并保留其他条目() {
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // 改名前的旧版生成的 patch：缩进完整但钉死 `profile: desktop`。市场按
+        // config 优先于 argv 解析安装目标，会装进错误的 profile——UI 显示
+        // 「已安装/使用中」而运行时永不加载（2026-08-27 事故），启动必须自愈。
+        // 块后还有市场的禁用条目：重写只替换 dsh-market 块，不得丢用户内容。
+        fs::write(
+            profile.join("cordis.patch.yml"),
+            "# 旧版生成\n- id: dsh-market\n  config:\n    allowRestart: false\n    profile: desktop\n- id: web-ui-skin-center\n  name: \"@linxin666/dsh-client-ui-skin-center\"\n  disabled: true\n",
+        )
+        .unwrap();
+        assert!(ensure_user_patch_overrides(&profile).unwrap());
+        let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert!(
+            text.contains("profile: DSHdesk"),
+            "钉值应自愈为当前 profile"
+        );
+        assert!(!text.contains("profile: desktop"), "陈旧钉值必须被替换");
+        assert!(text.contains("web-ui-skin-center"), "块外内容必须保留");
+        assert!(text.contains("disabled: true"), "块外内容必须保留");
+        // 重写后幂等。
+        assert!(!ensure_user_patch_overrides(&profile).unwrap());
+    }
+
+    #[test]
+    fn 用户层patch_陈旧profile钉值_文件尾时替换为标准块() {
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // 陈旧钉值独占文件尾（无后续条目）：替换后就是标准块本身。
+        fs::write(
+            profile.join("cordis.patch.yml"),
+            "- id: dsh-market\n  config:\n    allowRestart: false\n    profile: desktop\n",
+        )
+        .unwrap();
+        assert!(ensure_user_patch_overrides(&profile).unwrap());
+        let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert_eq!(text, DEFAULT_PLUGIN_PATCH_OVERRIDES);
+    }
+
+    #[test]
+    fn 用户层patch_正确钉值_不重写() {
+        let tmp = TempDir::new().unwrap();
+        let profile = tmp.path().join("desktop");
+        fs::create_dir_all(&profile).unwrap();
+        // 标准块 + 正确钉值 + 块外用户条目：原样保留（幂等）。
+        let existing = format!(
+            "# 用户自定义\n{DEFAULT_PLUGIN_PATCH_OVERRIDES}- id: web-ui-pet\n  name: \"@linxin666/dsh-pet\"\n  disabled: true\n"
+        );
+        fs::write(profile.join("cordis.patch.yml"), &existing).unwrap();
+        assert!(!ensure_user_patch_overrides(&profile).unwrap());
+        let text = fs::read_to_string(profile.join("cordis.patch.yml")).unwrap();
+        assert_eq!(text, existing);
+    }
+
+    #[test]
+    fn 默认patch模板_钉值与profile名一致() {
+        // concat! 只接受字面量，模板钉值无法引用 PROFILE_NAME；漂移会让陈旧
+        // 钉值自愈失效（每次启动都重写且钉值仍旧错误），此测试在 CI 兜底。
+        // 同时校验期望形态：allowRestart 之后紧邻钉值行。
+        assert!(DEFAULT_PLUGIN_PATCH_OVERRIDES.contains(&format!(
+            "\n    allowRestart: false\n    profile: {PROFILE_NAME}\n"
+        )));
     }
 
     #[tokio::test]

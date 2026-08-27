@@ -32,7 +32,11 @@ async fn smoke() -> Result<(), String> {
         .ok()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| {
-            format!("{}@{}", profile::BRIDGE_PACKAGE, profile::BRIDGE_PACKAGE_VERSION)
+            format!(
+                "{}@{}",
+                profile::BRIDGE_PACKAGE,
+                profile::BRIDGE_PACKAGE_VERSION
+            )
         });
     let outcome = profile::ensure_profile_init(&profile::InitOptions {
         profile_dir: paths::profile_dir(),
@@ -91,11 +95,15 @@ async fn smoke() -> Result<(), String> {
     };
 
     // 健康检查：GET / 断言 200 与标题（apps/web/index.html 的真实标题）。
-    let response = ureq::get(&url).call().map_err(|e| format!("GET / 失败: {e}"))?;
+    let response = ureq::get(&url)
+        .call()
+        .map_err(|e| format!("GET / 失败: {e}"))?;
     if response.status() != 200 {
         return Err(format!("GET / 状态码 {}", response.status()));
     }
-    let body = response.into_string().map_err(|e| format!("读响应失败: {e}"))?;
+    let body = response
+        .into_string()
+        .map_err(|e| format!("读响应失败: {e}"))?;
     if !body.contains("<title>DeepSeek Harness</title>") {
         return Err("页面标题不含 DeepSeek Harness".to_owned());
     }

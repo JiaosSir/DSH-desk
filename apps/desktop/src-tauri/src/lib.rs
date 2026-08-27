@@ -9,9 +9,11 @@
 
 mod bridge;
 mod commands;
-pub mod smoke;
+mod http;
 mod shortcuts;
+pub mod smoke;
 mod tray;
+mod update;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -54,6 +56,8 @@ pub struct AppState {
     pub sidecar_version_file: Option<PathBuf>,
     /// 当前 WebView 页面类别（桥接脚本每次加载上报；None = 尚未上报）。
     pub page_kind: Arc<Mutex<Option<PageKind>>>,
+    /// 应用内更新会话（检查/下载进度/安装编排，UI 轮询）。
+    pub update: Arc<Mutex<update::UpdateSession>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -82,6 +86,10 @@ pub fn run() {
             commands::desktop_quit,
             commands::desktop_get_onboarding,
             commands::desktop_open_releases,
+            commands::desktop_check_update,
+            commands::desktop_download_update,
+            commands::desktop_update_progress,
+            commands::desktop_install_update,
             commands::desktop_set_autostart,
             commands::desktop_get_autostart,
             commands::desktop_get_hotkey,
@@ -103,6 +111,7 @@ pub fn run() {
                 sidecar_archive: layout.archive,
                 sidecar_version_file: layout.version_file,
                 page_kind: Arc::new(Mutex::new(None)),
+                update: Arc::new(Mutex::new(update::UpdateSession::new())),
             });
             // 窗口在代码里创建（等待页之外还需注入 __DSH_DESK__ 桥）；
             // WebView 硬化：仅允许本地资产页与本机 sidecar 源，外链交系统浏览器，
@@ -157,18 +166,22 @@ pub fn run() {
         .run(|_, _| {});
 }
 
-/// 停宿主后退出：向监督任务发 `Stop` 并等 kill 完成（超时兜底 5s）再退出进程。
-/// 关窗 / 托盘「退出」/ 桥接 quit 三条退出路径共用。
+/// 停宿主：向监督任务发 `Stop` 并等 kill 完成（超时兜底 5s），进程保持存活。
 ///
 /// 必须等确认而不是发完就跑：监督任务挂在全局 async runtime 上，进程退出时
 /// 任务不会被取消、`Supervisor::drop` 不会执行（孤儿 sidecar 事故）；任务
 /// 不可达时宿主必然尚未拉起，`recv_timeout` 兜底最多拖 5s。
-pub(crate) fn stop_host_then_exit(app: &tauri::AppHandle) {
+pub(crate) fn stop_host(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     if state.cmd_tx.send(ShellCommand::Stop { done: tx }).is_ok() {
         let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
     }
+}
+
+/// 停宿主后退出：关窗 / 托盘「退出」/ 桥接 quit 三条退出路径共用。
+pub(crate) fn stop_host_then_exit(app: &tauri::AppHandle) {
+    stop_host(app);
     app.exit(0);
 }
 
@@ -197,7 +210,10 @@ async fn supervisor_task(
     // 进度镜像到等待页）；dev/`SIDECAR_ROOT` 模式（无资产）直接通过。
     let (archive, version_file) = {
         let state = app.state::<AppState>();
-        (state.sidecar_archive.clone(), state.sidecar_version_file.clone())
+        (
+            state.sidecar_archive.clone(),
+            state.sidecar_version_file.clone(),
+        )
     };
     if let Err(e) = ensure_sidecar_ready(
         &sidecar.root,
@@ -249,6 +265,8 @@ async fn supervisor_task(
     ));
 
     let mut failed = false;
+    // 启动自动检查更新只跑一次（宿主崩溃重启不重复弹窗/重复请求）。
+    let mut update_checked = false;
     let node = node_exe.to_string_lossy().into_owned();
     let bin = bin_js.to_string_lossy().into_owned();
     loop {
@@ -323,6 +341,45 @@ async fn supervisor_task(
                 SupervisorEvent::Ready { url } => {
                     let _ = shell_log.append(&format!("宿主就绪: {url}"));
                     set_status(&status, DesktopStatus::running(url.clone()));
+                    // 启动自动检查更新（每个进程一次）：仅安装版；有新版本时向
+                    // 侧边栏注入「下载更新」横幅。失败静默（网络不可达不打扰首启）。
+                    if !update_checked {
+                        update_checked = true;
+                        let app2 = app.clone();
+                        let window2 = window.clone();
+                        let _ = shell_log.append("启动自动检查更新（后台）");
+                        tauri::async_runtime::spawn(async move {
+                            let mode = update::detect_mode();
+                            if mode != update::UpdateMode::Installed {
+                                return;
+                            }
+                            let current =
+                                update::effective_current_version(&app2.package_info().version.to_string());
+                            let checked = tauri::async_runtime::spawn_blocking(move || {
+                                update::check_for_update(&current, mode)
+                            })
+                            .await;
+                            let info = match checked {
+                                Ok(Ok(info)) => info,
+                                _ => return,
+                            };
+                            // 记录进会话：横幅的下载/安装复用同一份 pending。
+                            if let Some(state) = app2.try_state::<AppState>() {
+                                state
+                                    .update
+                                    .lock()
+                                    .expect("更新会话锁")
+                                    .record_check(mode, &info);
+                            }
+                            if info.available {
+                                let js = bridge::update_banner_script(
+                                    &info.latest_version,
+                                    info.asset_size.unwrap_or(0),
+                                );
+                                let _ = window2.eval(&js);
+                            }
+                        });
+                    }
                     // 资产页由页面自身 `location.replace` 导航（替换历史条目，
                     // 返回键不回退等待页）；壳只在页面已离开资产页（崩溃重启）或
                     // replace 后未成功（宿主就绪后立即崩溃）时 push 兜底。
@@ -382,7 +439,11 @@ async fn initialize_profile(
         .ok()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| {
-            format!("{}@{}", profile::BRIDGE_PACKAGE, profile::BRIDGE_PACKAGE_VERSION)
+            format!(
+                "{}@{}",
+                profile::BRIDGE_PACKAGE,
+                profile::BRIDGE_PACKAGE_VERSION
+            )
         });
     let opts = profile::InitOptions {
         profile_dir: paths::profile_dir(),
