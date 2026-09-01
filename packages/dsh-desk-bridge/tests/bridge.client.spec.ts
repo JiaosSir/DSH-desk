@@ -62,6 +62,8 @@ function mockBridge(): DeskBridge {
     restartHost: vi.fn(async () => {}),
     setAutostart: vi.fn(async () => true),
     getAutostart: vi.fn(async () => false),
+    getTitlebarMode: vi.fn(async () => 'native' as const),
+    setTitlebarMode: vi.fn(async (mode: 'native' | 'hidden') => mode),
     quit: vi.fn(async () => {}),
     notify: vi.fn(async () => {}),
   }
@@ -160,6 +162,7 @@ describe('client 插件入口', () => {
     const ctx = mockCtx()
     apply(ctx as never)
     expect(bridge.setAutostart).not.toHaveBeenCalled()
+    expect(bridge.setTitlebarMode).not.toHaveBeenCalled()
     expect(bridge.notify).not.toHaveBeenCalled()
     expect(bridge.restartHost).not.toHaveBeenCalled()
     expect(bridge.checkUpdate).not.toHaveBeenCalled()

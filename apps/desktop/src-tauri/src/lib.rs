@@ -96,6 +96,8 @@ pub fn run() {
             commands::desktop_notify,
             commands::desktop_sync_list,
             commands::desktop_sync_add,
+            commands::desktop_get_titlebar_mode,
+            commands::desktop_set_titlebar_mode,
         ])
         .setup(|app| {
             let logs_dir = paths::logs_dir();
@@ -125,6 +127,9 @@ pub fn run() {
             .title("DSH-desk")
             .inner_size(1280.0, 800.0)
             .center()
+            .decorations(
+                desk_core::config::load().titlebar == desk_core::config::TitlebarMode::Native,
+            )
             .initialization_script(bridge::BRIDGE_SCRIPT)
             .on_navigation(|url| {
                 // 白名单：内嵌资产页（tauri:// 与 Tauri 2 Windows 的 http://tauri.localhost）

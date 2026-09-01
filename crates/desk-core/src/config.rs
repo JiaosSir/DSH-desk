@@ -1,5 +1,6 @@
-//! Desktop 自有状态（`~/.dsh/desktop/config.json`）：全局快捷键、开机自启。
-//! 读取失败一律回退默认值（fail-open，不阻塞启动），只有写入失败才报错。
+//! Desktop 自有状态（`~/.dsh/desktop/config.json`）：全局快捷键、开机自启、
+//! 原生标题栏开关。读取失败一律回退默认值（fail-open，不阻塞启动），只有
+//! 写入失败才报错。
 
 use std::path::{Path, PathBuf};
 
@@ -11,13 +12,25 @@ fn default_hotkey() -> String {
     "Ctrl+Alt+D".to_string()
 }
 
-/// 桌面配置：快捷键（v1 只读展示）、开机自启。
+/// 窗口标题栏模式：原生系统标题栏，或隐藏后由自绘透明标题栏替代。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TitlebarMode {
+    /// 原生标题栏（Windows 系统装饰）。
+    #[default]
+    Native,
+    /// 隐藏原生标题栏；WebView 注入自绘透明标题栏（跟随 DSH 主题）。
+    Hidden,
+}
+
+/// 桌面配置：快捷键（v1 只读展示）、开机自启、标题栏模式。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DesktopConfig {
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
     pub autostart: bool,
+    pub titlebar: TitlebarMode,
 }
 
 impl Default for DesktopConfig {
@@ -25,6 +38,7 @@ impl Default for DesktopConfig {
         Self {
             hotkey: default_hotkey(),
             autostart: false,
+            titlebar: TitlebarMode::Native,
         }
     }
 }
@@ -77,6 +91,7 @@ mod tests {
             DesktopConfig {
                 hotkey: "Ctrl+Alt+D".to_string(),
                 autostart: false,
+                titlebar: TitlebarMode::Native,
             }
         );
     }
@@ -88,6 +103,7 @@ mod tests {
         let cfg = load_from(tmp.path());
         assert_eq!(cfg.hotkey, "Ctrl+Alt+D");
         assert!(!cfg.autostart);
+        assert_eq!(cfg.titlebar, TitlebarMode::Native);
     }
 
     #[test]
@@ -97,6 +113,35 @@ mod tests {
         let cfg = load_from(tmp.path());
         assert!(cfg.autostart);
         assert_eq!(cfg.hotkey, "Ctrl+Alt+D");
+        assert_eq!(cfg.titlebar, TitlebarMode::Native);
+    }
+
+    #[test]
+    fn 标题栏模式读写() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(config_path(tmp.path()), r#"{"titlebar":"hidden"}"#).unwrap();
+        let cfg = load_from(tmp.path());
+        assert_eq!(cfg.titlebar, TitlebarMode::Hidden);
+        // 非法枚举值回退默认（fail-open）。
+        std::fs::write(config_path(tmp.path()), r#"{"titlebar":"weird"}"#).unwrap();
+        assert_eq!(load_from(tmp.path()).titlebar, TitlebarMode::Native);
+    }
+
+    #[test]
+    fn 标题栏模式序列化契约() {
+        // 壳侧事件 payload / invoke 参数与桥脚本比较字符串，序列化必须是小写枚举名。
+        assert_eq!(
+            serde_json::to_string(&TitlebarMode::Native).unwrap(),
+            "\"native\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TitlebarMode::Hidden).unwrap(),
+            "\"hidden\""
+        );
+        assert_eq!(
+            serde_json::from_str::<TitlebarMode>("\"hidden\"").unwrap(),
+            TitlebarMode::Hidden
+        );
     }
 
     #[test]
@@ -113,6 +158,7 @@ mod tests {
         let cfg = DesktopConfig {
             hotkey: "Ctrl+Shift+D".to_string(),
             autostart: true,
+            titlebar: TitlebarMode::Hidden,
         };
         save_to(tmp.path(), &cfg).unwrap();
         assert_eq!(load_from(tmp.path()), cfg);

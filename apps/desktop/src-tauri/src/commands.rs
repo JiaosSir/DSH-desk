@@ -1,7 +1,7 @@
 //! 壳侧 IPC 命令：桥接插件（`window.__DSH_DESK__`）调用的后端实现。
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::update::{self, UpdateInfo, UpdateMode, UpdateProgress};
@@ -258,6 +258,33 @@ pub fn desktop_get_autostart(app: AppHandle) -> bool {
 #[tauri::command]
 pub fn desktop_get_hotkey() -> String {
     desk_core::config::load().hotkey
+}
+
+/// 当前标题栏模式（config.json：native / hidden）。
+#[tauri::command]
+pub fn desktop_get_titlebar_mode() -> desk_core::config::TitlebarMode {
+    desk_core::config::load().titlebar
+}
+
+/// 切换标题栏模式：持久化到 config.json，立即切换窗口装饰，并通知
+/// WebView 重建/移除自绘透明标题栏（桥接脚本监听 desktop_titlebar 事件）。
+#[tauri::command]
+pub fn desktop_set_titlebar_mode(
+    app: tauri::AppHandle,
+    mode: desk_core::config::TitlebarMode,
+) -> Result<desk_core::config::TitlebarMode, String> {
+    let mut cfg = desk_core::config::load();
+    cfg.titlebar = mode;
+    desk_core::config::save(&cfg)?;
+    let decorated = mode == desk_core::config::TitlebarMode::Native;
+    if let Some(window) = app.get_webview_window("main") {
+        window
+            .set_decorations(decorated)
+            .map_err(|e| format!("切换窗口装饰失败: {e}"))?;
+        // 事件名与桥接脚本里的监听一致；WebView 收到后重建/移除透明条。
+        let _ = window.emit("desktop_titlebar", mode);
+    }
+    Ok(mode)
 }
 
 /// 系统通知镜像（审批事件等）。

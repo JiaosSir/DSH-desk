@@ -112,13 +112,22 @@ DSH-desk 的界面依赖微软 WebView2 Runtime（Windows 11 自带；Windows 10
 ```json
 {
   "hotkey": "Ctrl+Shift+D",
-  "autostart": false
+  "autostart": false,
+  "titlebar": "native"
 }
 ```
 
 3. 保存后重新启动应用。
 
 说明：格式参照 Tauri 快捷键写法（`Ctrl` / `Alt` / `Shift` + 单键）；**非法值自动回退**为 `Ctrl+Alt+D`，不会导致启动失败。
+
+### 标题栏能跟随 DSH 主题吗
+
+能。设置区「桌面」分区可切换**原生标题栏**（默认）与**自绘透明标题栏**：
+
+- 自绘模式隐藏系统标题栏，窗口顶部显示一条与原生标题栏同高（32px）的全透明拖拽区，颜色透出 DSH 界面背景，**明暗主题自动跟随**，无需额外配置；
+- 切换即时生效并持久化到 `~/.dsh/desktop/config.json` 的 `titlebar` 字段（`native` / `hidden`，非法值回退 `native`）；
+- 自绘模式不提供最小化/最大化/关闭按钮，窗口操作走托盘菜单、全局快捷键（`Ctrl+Alt+D` 唤起/隐藏）与系统任务栏。
 
 ### 关闭窗口后应用还在后台吗
 

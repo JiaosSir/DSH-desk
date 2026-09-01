@@ -112,13 +112,22 @@ The default global hotkey is `Ctrl+Alt+D` (show/hide window); the "Desktop" sect
 ```json
 {
   "hotkey": "Ctrl+Shift+D",
-  "autostart": false
+  "autostart": false,
+  "titlebar": "native"
 }
 ```
 
 3. Save and restart the app.
 
 Notes: the format follows Tauri shortcut syntax (`Ctrl` / `Alt` / `Shift` + a single key); **invalid values automatically fall back** to `Ctrl+Alt+D` and will not prevent startup.
+
+### Can the title bar follow the DSH theme?
+
+Yes. The "Desktop" section of settings switches between the **native title bar** (default) and the **custom transparent title bar**:
+
+- Custom mode hides the system title bar and shows a fully transparent drag region at the top of the window, the same height as the native title bar (32px). Its color shows through the DSH interface background, so **light/dark themes are followed automatically** with no extra configuration;
+- The switch takes effect immediately and is persisted in the `titlebar` field of `~/.dsh/desktop/config.json` (`native` / `hidden`; invalid values fall back to `native`);
+- Custom mode provides no minimize/maximize/close buttons; window operations go through the tray menu, the global hotkey (`Ctrl+Alt+D` show/hide), and the system taskbar.
 
 ### Does the app keep running in the background after I close the window?
 

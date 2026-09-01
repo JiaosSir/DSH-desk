@@ -18,6 +18,8 @@ window.__DSH_DESK__ = {
   restartHost: () => window.__TAURI__.core.invoke('desktop_retry'),
   setAutostart: (enabled) => window.__TAURI__.core.invoke('desktop_set_autostart', { enabled }),
   getAutostart: () => window.__TAURI__.core.invoke('desktop_get_autostart'),
+  getTitlebarMode: () => window.__TAURI__.core.invoke('desktop_get_titlebar_mode'),
+  setTitlebarMode: (mode) => window.__TAURI__.core.invoke('desktop_set_titlebar_mode', { mode }),
   quit: () => window.__TAURI__.core.invoke('desktop_quit'),
   notify: (title, body) => window.__TAURI__.core.invoke('desktop_notify', { title, body }),
 };
@@ -27,6 +29,57 @@ try {
     kind: location.hostname === '127.0.0.1' ? 'host' : 'asset',
   }).catch(() => {});
 } catch (e) { /* ignore */ }
+
+// 自绘透明标题栏（原生标题栏隐藏时）：body 顶部下推 TITLEBAR_HEIGHT 露出
+// 一条与 DSH 主题背景同色的透明拖拽区（fixed 条带 data-tauri-drag-region），
+// 高度与原生标题栏一致；纯浏览器/原生模式下降级为空操作。
+// 锚定不依赖 DSH 内部 DOM（不动 centerCol/grid 布局），只改 body 的
+// padding-top 与 box-sizing；恢复时原样还原，不影响其它壳注入。
+(function () {
+  var HOST_ONLY = location.hostname === '127.0.0.1';
+  var TB_ID = 'dshDeskTitlebar';
+  var TB_HEIGHT = 32; // 与原生标题栏高度一致（Windows 标准 32px）
+
+  function applyTitlebar() {
+    if (!HOST_ONLY) return;
+    if (document.getElementById(TB_ID)) return;
+    // box-sizing: border-box 保证 padding-top 后 #root 高度仍为 100% - 32px，
+    // 内容整体下移、不被截断（html/body/#root 高度链见 dsh base.css）。
+    document.body.style.boxSizing = 'border-box';
+    document.body.style.paddingTop = TB_HEIGHT + 'px';
+    var bar = document.createElement('div');
+    bar.id = TB_ID;
+    bar.setAttribute('data-tauri-drag-region', '');
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:' + TB_HEIGHT +
+      'px;z-index:2147483647;background:transparent;';
+    document.body.appendChild(bar);
+  }
+
+  function removeTitlebar() {
+    var bar = document.getElementById(TB_ID);
+    if (bar) bar.remove();
+    document.body.style.paddingTop = '';
+    document.body.style.boxSizing = '';
+  }
+
+  function initTitlebar() {
+    try {
+      window.__TAURI__.event.listen('desktop_titlebar', function (e) {
+        if (e.payload === 'hidden') applyTitlebar(); else removeTitlebar();
+      }).catch(function () {});
+      window.__DSH_DESK__.getTitlebarMode().then(function (m) {
+        if (m === 'hidden') applyTitlebar(); else removeTitlebar();
+      }).catch(function () {});
+    } catch (e) { /* ignore */ }
+  }
+
+  // initialization script 执行时 DOM 可能尚未就绪；等 DOMContentLoaded 再挂。
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initTitlebar);
+  } else {
+    initTitlebar();
+  }
+})();
 
 // 宿主页历史护栏：压入占位条目，返回键时把用户推回当前视图
 // （WebView 返回键会落回首次加载条目，重新触发 dsh 启动 loading）。
@@ -148,7 +201,7 @@ pub fn update_banner_script(latest_version: &str, size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::update_banner_script;
+    use super::{update_banner_script, BRIDGE_SCRIPT};
 
     #[test]
     fn 横幅脚本用包含匹配锚点与主题令牌() {
@@ -196,5 +249,42 @@ mod tests {
         let js = update_banner_script("v1\"x\\y", 0);
         assert!(js.contains("\\\""));
         assert!(!js.contains("__LATEST_JSON__"), "占位符应被替换");
+    }
+
+    #[test]
+    fn 标题栏桥方法与透明条注入契约() {
+        let js = BRIDGE_SCRIPT;
+        // 桥方法：读/写标题栏模式（与 commands.rs 命令名一致）。
+        assert!(js.contains(
+            "getTitlebarMode: () => window.__TAURI__.core.invoke('desktop_get_titlebar_mode')"
+        ));
+        assert!(js.contains("setTitlebarMode: (mode) => window.__TAURI__.core.invoke('desktop_set_titlebar_mode', { mode })"));
+        // 自绘透明条：全透明 + fixed 顶部 + data-tauri-drag-region（可拖拽）。
+        assert!(js.contains("data-tauri-drag-region"));
+        assert!(js.contains("background:transparent"), "标题栏必须全透明");
+        assert!(
+            js.contains("position:fixed;top:0;left:0;right:0"),
+            "全宽覆盖窗口顶部"
+        );
+        assert!(
+            js.contains("TB_HEIGHT = 32"),
+            "高度与原生标题栏一致（32px）"
+        );
+        // 主题联动：透明条不写死颜色，露出 DSH 主题背景。
+        assert!(!js.contains("background:#"), "不得写死标题栏颜色");
+        assert!(
+            js.contains("'border-box'"),
+            "内容下推需保持高度链（boxSizing）"
+        );
+        assert!(
+            js.contains("paddingTop = TB_HEIGHT + 'px'"),
+            "body 顶部下推"
+        );
+        // 事件驱动重建：监听 desktop_titlebar 事件 + 启动时读当前模式。
+        assert!(js.contains("desktop_titlebar"));
+        assert!(js.contains("getTitlebarMode()"), "启动时恢复当前模式");
+        // 纯浏览器/资产页降级：host 页才生效，事件/查询失败静默。
+        assert!(js.contains("HOST_ONLY = location.hostname === '127.0.0.1'"));
+        assert!(js.contains("/* ignore */"));
     }
 }

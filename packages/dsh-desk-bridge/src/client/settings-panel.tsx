@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { DeskBridge, UpdateInfo, UpdateProgress } from './bridge'
+import type { DeskBridge, TitlebarMode, UpdateInfo, UpdateProgress } from './bridge'
 
 export interface DesktopSettingsProps {
   bridge: DeskBridge
@@ -66,6 +66,7 @@ function notesExcerpt(notes: string): string {
 /** 「桌面」设置区（v1 首发 zh-CN 文案）。 */
 export function DesktopSettings({ bridge }: DesktopSettingsProps): ReactElement {
   const [autostart, setAutostart] = useState(false)
+  const [titlebar, setTitlebar] = useState<TitlebarMode>('native')
   const [hotkey, setHotkey] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,6 +79,7 @@ export function DesktopSettings({ bridge }: DesktopSettingsProps): ReactElement 
 
   useEffect(() => {
     void bridge.getAutostart().then(setAutostart).catch(() => {})
+    void bridge.getTitlebarMode().then(setTitlebar).catch(() => {})
     void bridge.getHotkey().then(setHotkey).catch(() => {})
   }, [bridge])
 
@@ -113,6 +115,12 @@ export function DesktopSettings({ bridge }: DesktopSettingsProps): ReactElement 
   const toggleAutostart = async (): Promise<void> => {
     await run(async () => {
       setAutostart(await bridge.setAutostart(!autostart))
+    })
+  }
+
+  const toggleTitlebar = async (): Promise<void> => {
+    await run(async () => {
+      setTitlebar(await bridge.setTitlebarMode(titlebar === 'native' ? 'hidden' : 'native'))
     })
   }
 
@@ -158,6 +166,22 @@ export function DesktopSettings({ bridge }: DesktopSettingsProps): ReactElement 
             checked={autostart}
             disabled={busy}
             onChange={() => void toggleAutostart()}
+          />
+        </label>
+      </div>
+      <div style={rowStyle}>
+        <div>
+          <div style={labelStyle}>原生标题栏</div>
+          <div style={hintStyle}>
+            {titlebar === 'native' ? '使用系统标题栏' : '隐藏后使用自绘透明标题栏（跟随 DSH 主题，可拖拽）'}
+          </div>
+        </div>
+        <label>
+          <input
+            type="checkbox"
+            checked={titlebar === 'hidden'}
+            disabled={busy}
+            onChange={() => void toggleTitlebar()}
           />
         </label>
       </div>

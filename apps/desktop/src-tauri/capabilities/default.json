@@ -21,6 +21,8 @@
     "allow-desktop-set-autostart",
     "allow-desktop-get-autostart",
     "allow-desktop-get-hotkey",
+    "allow-desktop-get-titlebar-mode",
+    "allow-desktop-set-titlebar-mode",
     "allow-desktop-notify",
     "allow-desktop-sync-list",
     "allow-desktop-sync-add"

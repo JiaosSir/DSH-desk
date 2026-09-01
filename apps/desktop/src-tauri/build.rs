@@ -18,6 +18,8 @@ fn main() {
             "desktop_set_autostart",
             "desktop_get_autostart",
             "desktop_get_hotkey",
+            "desktop_get_titlebar_mode",
+            "desktop_set_titlebar_mode",
             "desktop_notify",
             "desktop_sync_list",
             "desktop_sync_add",

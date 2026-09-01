@@ -31,6 +31,9 @@ export interface UpdateProgress {
   message: string | null
 }
 
+/** 标题栏模式（壳侧 desktop_get/set_titlebar_mode）。 */
+export type TitlebarMode = 'native' | 'hidden'
+
 /** Tauri 壳注入的桌面桥协议。 */
 export interface DeskBridge {
   /** 每个方法都由壳背书时为 true。 */
@@ -55,6 +58,10 @@ export interface DeskBridge {
   setAutostart(enabled: boolean): Promise<boolean>
   /** 当前开机自启状态。 */
   getAutostart(): Promise<boolean>
+  /** 当前标题栏模式（native = 原生，hidden = 自绘透明标题栏）。 */
+  getTitlebarMode(): Promise<TitlebarMode>
+  /** 切换标题栏模式；返回持久化后的模式。 */
+  setTitlebarMode(mode: TitlebarMode): Promise<TitlebarMode>
   /** 退出桌面应用（先停 sidecar）。 */
   quit(): Promise<void>
   /** 镜像一条系统通知（审批事件、长任务）。 */
